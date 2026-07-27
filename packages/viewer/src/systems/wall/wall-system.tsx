@@ -37,6 +37,7 @@ import * as THREE from 'three'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg'
 import { computeBoundsTree } from 'three-mesh-bvh'
 import { ensureRenderableGeometryAttributes, prepareBrushForCSG } from '../../lib/csg-utils'
+import { setGroupsSortedByMaterial } from '../../lib/geometry-groups'
 import {
   buildOpeningCutoutGeometry,
   getOpeningCutoutBottomPadding,
@@ -329,21 +330,7 @@ function assignWallMaterialGroups(
     )
   }
 
-  geometry.clearGroups()
-
-  let currentMaterial = triangleMaterials[0] ?? 0
-  let groupStart = 0
-
-  for (let triangleIndex = 1; triangleIndex < triangleCount; triangleIndex += 1) {
-    const materialIndex = triangleMaterials[triangleIndex] ?? 0
-    if (materialIndex === currentMaterial) continue
-
-    geometry.addGroup(groupStart * 3, (triangleIndex - groupStart) * 3, currentMaterial)
-    groupStart = triangleIndex
-    currentMaterial = materialIndex
-  }
-
-  geometry.addGroup(groupStart * 3, (triangleCount - groupStart) * 3, currentMaterial)
+  setGroupsSortedByMaterial(geometry, triangleMaterials)
 }
 
 type SplitVertex = {
