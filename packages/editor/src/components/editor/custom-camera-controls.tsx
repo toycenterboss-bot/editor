@@ -12,7 +12,7 @@ import {
 import { GRID_LAYER, useViewer, ZONE_LAYER } from '@pascal-app/viewer'
 import { CameraControls, CameraControlsImpl } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Box3,
   type Camera,
@@ -50,6 +50,10 @@ const tempTarget = new Vector3()
 const transitionFreezePosition = new Vector3()
 const transitionFreezeTarget = new Vector3()
 const keyboardPanSpherical = new Spherical()
+// Orbit ceiling for hand navigation. Framing a whole site needs to pull back
+// much further than that, so the ceiling is raised to whatever the fit asks for
+// rather than capping the fit itself.
+const DEFAULT_MAX_DISTANCE = 100
 const DEFAULT_MAX_POLAR_ANGLE = Math.PI / 2 - 0.1
 const DEBUG_MAX_POLAR_ANGLE = Math.PI - 0.05
 const KEYBOARD_PAN_VIEW_WIDTH_PER_SECOND = 0.65
@@ -373,6 +377,7 @@ export const CustomCameraControls = () => {
   )
   const currentLevelId = selection.levelId
   const firstLoad = useRef(true)
+  const [maxDistance, setMaxDistance] = useState(DEFAULT_MAX_DISTANCE)
   const maxPolarAngle =
     !isPreviewMode && allowUndergroundCamera ? DEBUG_MAX_POLAR_ANGLE : DEFAULT_MAX_POLAR_ANGLE
 
@@ -1256,6 +1261,15 @@ export const CustomCameraControls = () => {
       const maxExtent = Math.max(w, d)
       const distance = Math.max(maxExtent * 1.4, 15)
       const height = Math.max(maxExtent * 0.8, 10)
+      // A large site needs a longer orbit radius than hand navigation ever
+      // asks for. Leaving the ceiling where it is would clamp the fit and open
+      // the plan halfway inside the building, so raise it to what this scene
+      // needs — imperatively too, since the prop only lands on the next render
+      // and `setLookAt` clamps right now.
+      const orbitRadius = Math.hypot(distance * 0.7, height, distance * 0.7)
+      const requiredMaxDistance = Math.max(DEFAULT_MAX_DISTANCE, Math.ceil(orbitRadius * 1.25))
+      controls.current.maxDistance = requiredMaxDistance
+      setMaxDistance(requiredMaxDistance)
       controls.current.setLookAt(cx + distance * 0.7, height, cz + distance * 0.7, cx, 0, cz, true)
     }
 
@@ -1311,7 +1325,7 @@ export const CustomCameraControls = () => {
   return (
     <CameraControls
       makeDefault
-      maxDistance={1500}
+      maxDistance={maxDistance}
       maxPolarAngle={maxPolarAngle}
       minDistance={minDistance}
       minPolarAngle={0}
@@ -1324,8 +1338,8 @@ export const CustomCameraControls = () => {
       onTransitionStart={onTransitionStart}
       ref={(instance) => {
         controls.current = instance
-        if (typeof window !== 'undefined') {
-          // @ts-expect-error debug handle
+        if (process.env.NODE_ENV !== 'production' && typeof window !== 'undefined') {
+          // @ts-expect-error console handle, dev builds only
           window.__cc = instance
         }
       }}

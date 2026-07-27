@@ -61,7 +61,6 @@ import { Command, Ruler } from 'lucide-react'
 import {
   type ComponentProps,
   memo,
-  Profiler,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
@@ -73,15 +72,6 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-
-const __probeData: Record<string, number[]> = {}
-export function __probeLog(key: string, ms: number): void {
-  const bucket = (__probeData[key] ??= [])
-  bucket.push(Math.round(ms))
-  if (bucket.length > 24) bucket.shift()
-  if (typeof document !== 'undefined')
-    document.documentElement.setAttribute('data-prof', JSON.stringify(__probeData))
-}
 import { Vector3 } from 'three'
 import { useShallow } from 'zustand/react/shallow'
 import { resolveCeilingPlanPointSnap } from '../../lib/ceiling-plan-snap'
@@ -124,6 +114,7 @@ import useInteractionScope, {
 } from '../../store/use-interaction-scope'
 import usePlacementPreview from '../../store/use-placement-preview'
 import { useStairBuildPreview } from '../../store/use-stair-build-preview'
+import useViewSettings from '../../store/use-view-settings'
 import { FloorplanAlignmentGuideLayer } from '../editor-2d/floorplan-alignment-guide-layer'
 import { FloorplanCursorIndicatorOverlay as Editor2dFloorplanCursorIndicatorOverlay } from '../editor-2d/floorplan-cursor-indicator-overlay'
 import { FloorplanGroupActionMenu } from '../editor-2d/floorplan-group-action-menu'
@@ -5364,7 +5355,6 @@ export function FloorplanPanel({
   compassHost?: HTMLElement | null
   floorplanSceneSlot?: ReactNode
 }) {
-  const __probeStart = performance.now()
   useFloorplanCameraSyncBridge()
   const viewportHostRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -7377,6 +7367,7 @@ export function FloorplanPanel({
     // bridge sets during startup — otherwise the plan opens at whatever zoom
     // the default 3D camera implies, which is effectively "maximum".
     const canPerformInitialFit =
+      useViewSettings.getState().frameOnLoad &&
       !hasPerformedInitialFitRef.current &&
       !transientFloorplanFit &&
       measuredSceneBBox !== null &&
@@ -11887,9 +11878,7 @@ export function FloorplanPanel({
   const referenceScaleHint = referenceScaleInputError
     ? null
     : referenceScaleLengthHint(referenceScaleValue, referenceScaleUnit)
-  __probeLog('panelBody', performance.now() - __probeStart)
   return (
-    <Profiler id="panel" onRender={(_i, _p, actual) => __probeLog('panelTree', actual)}>
     <div
       className="pointer-events-auto flex h-full w-full flex-col overflow-hidden bg-background/95"
       onPointerEnter={() => setFloorplanHovered(true)}
@@ -12243,12 +12232,7 @@ export function FloorplanPanel({
                     whose extent is derived from the current viewBox and
                     would create a measure→fit→measure loop. */}
                 <g ref={floorplanContentRef}>
-                  <Profiler
-                    id="registry"
-                    onRender={(_id, _phase, actual) => __probeLog('registry', actual)}
-                  >
-                    <FloorplanRegistryLayer />
-                  </Profiler>
+                  <FloorplanRegistryLayer />
                   {/* Faint footprint ghost of the node being placed by a
                       registry placement tool (e.g. column), following the
                       cursor. The 3D mesh preview is hidden in 2D, so this is
@@ -12445,6 +12429,5 @@ export function FloorplanPanel({
         ) : null}
       </div>
     </div>
-    </Profiler>
   )
 }

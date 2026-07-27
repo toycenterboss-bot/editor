@@ -3,6 +3,7 @@
 import { emitter, useScene } from '@pascal-app/core'
 import { useEffect, useRef } from 'react'
 import { computeSceneBoundsXZ } from '../lib/scene-bounds'
+import useViewSettings from '../store/use-view-settings'
 
 /**
  * Auto-frame the camera onto a freshly loaded scene.
@@ -35,6 +36,7 @@ export function useAutoFrame(): void {
     // is actually listening. The deadline keeps an empty editor (no scene, so
     // no controls to wait for) from polling forever.
     const emitWhenListening = (nodes: ReturnType<typeof useScene.getState>['nodes']) => {
+      if (!useViewSettings.getState().frameOnLoad) return
       const deadline = performance.now() + 15_000
       const attempt = () => {
         if (cancelled) return

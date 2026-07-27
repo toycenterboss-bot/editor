@@ -25,6 +25,7 @@ import {
 } from './../../../../../components/ui/primitives/dialog'
 import { Switch } from './../../../../../components/ui/primitives/switch'
 import useEditor, { selectDefaultBuildingAndLevel } from './../../../../../store/use-editor'
+import useViewSettings from './../../../../../store/use-view-settings'
 import { AudioSettingsDialog } from './audio-settings-dialog'
 import { KeyboardShortcutsDialog } from './keyboard-shortcuts-dialog'
 import { LoadBuildDialog, type PendingImport } from './load-build-dialog'
@@ -191,6 +192,8 @@ export function SettingsPanel({
   const resetSelection = useViewer((state) => state.resetSelection)
   const exportScene = useViewer((state) => state.exportScene)
   const shadows = useViewer((state) => state.shadows)
+  const frameOnLoad = useViewSettings((state) => state.frameOnLoad)
+  const showRenderStats = useViewSettings((state) => state.showRenderStats)
   const setPhase = useEditor((state) => state.setPhase)
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false)
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null)
@@ -365,6 +368,35 @@ export function SettingsPanel({
           </div>
         </div>
       )}
+
+      {/* View Section */}
+      <div className="space-y-3">
+        <label className="font-medium text-muted-foreground text-xs uppercase">View</label>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-medium text-sm">Frame scene on load</div>
+            <div className="text-muted-foreground text-xs">
+              Open on the whole floor instead of the last camera pose
+            </div>
+          </div>
+          <Switch
+            checked={frameOnLoad}
+            onCheckedChange={(checked) => useViewSettings.getState().setFrameOnLoad(checked)}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-medium text-sm">Render stats</div>
+            <div className="text-muted-foreground text-xs">
+              Draw calls, triangles and FPS overlay (Alt+P)
+            </div>
+          </div>
+          <Switch
+            checked={showRenderStats}
+            onCheckedChange={(checked) => useViewSettings.getState().setShowRenderStats(checked)}
+          />
+        </div>
+      </div>
 
       {/* Export Section */}
       <div className="space-y-4">

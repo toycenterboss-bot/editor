@@ -2,6 +2,7 @@
 
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useRef, useState } from 'react'
+import useViewSettings from '../../store/use-view-settings'
 
 // Live render telemetry. The point is falsifiability: LOD and culling claims are
 // only believable if the numbers move when the camera does. Draw calls and
@@ -38,19 +39,27 @@ type RendererInfo = {
 /**
  * Mounts inside the Canvas. Priority stays at 0 on purpose: any positive
  * priority would hand the render loop to this component and nothing would draw.
+ *
+ * Sampling is not free — it walks the scene graph and takes over the renderer's
+ * own counter reset — so nothing runs until the overlay is switched on.
  */
 export function RenderStatsProbe() {
+  const enabled = useViewSettings((state) => state.showRenderStats)
+  return enabled ? <ActiveRenderStatsProbe /> : null
+}
+
+function ActiveRenderStatsProbe() {
   const gl = useThree((state) => state.gl)
   const scene = useThree((state) => state.scene)
   const lastCensusRef = useRef(0)
 
   useEffect(() => {
-    ;(window as unknown as { __renderStats?: RenderStatsSnapshot }).__renderStats = latest
     // The renderer and scene are otherwise unreachable from the console — r3f
     // keeps them in a store that isn't hung off the canvas. Publishing them is
     // what makes a claim like "shadows cost N draw calls" checkable by hand.
     if (process.env.NODE_ENV !== 'production') {
       Object.assign(window as unknown as Record<string, unknown>, {
+        __renderStats: latest,
         __gl: gl,
         __scene: scene,
       })
@@ -103,7 +112,7 @@ export function RenderStatsProbe() {
   return null
 }
 
-const numberFormatter = new Intl.NumberFormat('ru-RU')
+const numberFormatter = new Intl.NumberFormat('en-US')
 
 function StatRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -122,7 +131,7 @@ function StatRow({ label, value, hint }: { label: string; value: string; hint?: 
  * 0 FPS instead of pretending to run at 60.
  */
 export function RenderStatsOverlay() {
-  const [isVisible, setIsVisible] = useState(true)
+  const isVisible = useViewSettings((state) => state.showRenderStats)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [view, setView] = useState({ ...latest, fps: 0 })
 
@@ -130,7 +139,7 @@ export function RenderStatsOverlay() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.altKey || event.code !== 'KeyP') return
       event.preventDefault()
-      setIsVisible((current) => !current)
+      useViewSettings.getState().toggleRenderStats()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -175,37 +184,37 @@ export function RenderStatsOverlay() {
         {isCollapsed ? null : (
           <div className="mt-1.5 space-y-0.5 border-white/10 border-t pt-1.5">
             <StatRow
-              hint="Сколько раз за кадр GPU просят что-то нарисовать"
+              hint="How many times the GPU was asked to draw something this frame"
               label="draw calls"
               value={numberFormatter.format(view.drawCalls)}
             />
             <StatRow
-              hint="Треугольников отправлено на отрисовку в последнем кадре"
-              label="треугольники"
+              hint="Triangles submitted in the last drawn frame"
+              label="triangles"
               value={numberFormatter.format(view.triangles)}
             />
-            <StatRow label="на вызов" value={numberFormatter.format(trianglesPerCall)} />
+            <StatRow label="per call" value={numberFormatter.format(trianglesPerCall)} />
             <StatRow
-              hint="Мешей в графе сцены / из них не скрыто флагом visible"
-              label="меши"
+              hint="Meshes in the scene graph / of those, not hidden by a visible flag"
+              label="meshes"
               value={`${numberFormatter.format(view.visibleMeshes)} / ${numberFormatter.format(view.meshes)}`}
             />
             <StatRow
-              hint="Меши, снятые с рендера флагом visible (этажи, фильтры)"
-              label="скрыто"
+              hint="Meshes taken out of the render by a visible flag (levels, filters)"
+              label="hidden"
               value={numberFormatter.format(hiddenMeshes)}
             />
             <StatRow
-              hint="Геометрий в памяти GPU"
-              label="геометрии"
+              hint="Geometries resident on the GPU"
+              label="geometries"
               value={numberFormatter.format(view.geometries)}
             />
             <StatRow
-              hint="Текстур в памяти GPU"
-              label="текстуры"
+              hint="Textures resident on the GPU"
+              label="textures"
               value={numberFormatter.format(view.textures)}
             />
-            <div className="pt-1 text-[10px] text-white/40 leading-4">Alt+P — скрыть</div>
+            <div className="pt-1 text-[10px] text-white/40 leading-4">Alt+P to hide</div>
           </div>
         )}
       </div>
