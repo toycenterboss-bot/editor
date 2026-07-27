@@ -62,6 +62,7 @@ import { Command, Ruler } from 'lucide-react'
 import {
   type ComponentProps,
   memo,
+  Profiler,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
@@ -73,6 +74,15 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+
+const __probeData: Record<string, number[]> = {}
+export function __probeLog(key: string, ms: number): void {
+  const bucket = (__probeData[key] ??= [])
+  bucket.push(Math.round(ms))
+  if (bucket.length > 24) bucket.shift()
+  if (typeof document !== 'undefined')
+    document.documentElement.setAttribute('data-prof', JSON.stringify(__probeData))
+}
 import { Vector3 } from 'three'
 import { useShallow } from 'zustand/react/shallow'
 import { resolveCeilingPlanPointSnap } from '../../lib/ceiling-plan-snap'
@@ -4962,6 +4972,7 @@ export function FloorplanPanel({
   compassHost?: HTMLElement | null
   floorplanSceneSlot?: ReactNode
 }) {
+  const __probeStart = performance.now()
   useFloorplanCameraSyncBridge()
   const viewportHostRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -4984,6 +4995,13 @@ export function FloorplanPanel({
   const panelBoundsRef = useRef<ViewportBounds | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const hasUserAdjustedViewportRef = useRef(false)
+  // The 3D→2D navigation bridge latches `hasUserAdjustedViewportRef` from the
+  // default 3D camera pose before any plan geometry has been measured, so the
+  // "user adjusted the view" latch was already set by the time a real fit could
+  // be computed — the plan opened pinned at an absurd zoom for the whole
+  // session. This tracks whether a fit derived from measured geometry has been
+  // applied yet; the first one is allowed to override the latch.
+  const hasPerformedInitialFitRef = useRef(false)
   const previousLevelIdRef = useRef<string | null>(null)
   const floorplanMarqueeSnapPointRef = useRef<WallPlanPoint | null>(null)
   const floorplanScreenSelectionRef = useRef<FloorplanScreenSelectionState | null>(null)
@@ -6800,6 +6818,7 @@ export function FloorplanPanel({
 
     if (levelChanged) {
       previousLevelIdRef.current = levelId ?? null
+      hasPerformedInitialFitRef.current = false
       if (!latestNavigationSyncPoseRef.current) {
         stopFloorplanViewAnimation()
         hasUserAdjustedViewportRef.current = false
@@ -6825,7 +6844,24 @@ export function FloorplanPanel({
       siteVertexDragState != null ||
       isPolygonDraftBuildActive
 
-    if (!(hasUserAdjustedViewportRef.current || transientFloorplanFit)) {
+    // First fit computed from real, measured geometry on a real-sized surface.
+    // That is not a user adjustment, so it outranks the latch the 3D camera
+    // bridge sets during startup — otherwise the plan opens at whatever zoom
+    // the default 3D camera implies, which is effectively "maximum".
+    const canPerformInitialFit =
+      !hasPerformedInitialFitRef.current &&
+      !transientFloorplanFit &&
+      measuredSceneBBox !== null &&
+      surfaceSize.width > 1 &&
+      surfaceSize.height > 1
+
+    if (canPerformInitialFit || !(hasUserAdjustedViewportRef.current || transientFloorplanFit)) {
+      if (canPerformInitialFit) {
+        hasPerformedInitialFitRef.current = true
+        hasUserAdjustedViewportRef.current = false
+        latestViewportRef.current = fittedViewport
+        floorplanImperativeViewBoxRef.current = null
+      }
       setViewport((current) =>
         floorplanViewportEquals(current, fittedViewport) ? current : fittedViewport,
       )
@@ -6836,9 +6872,12 @@ export function FloorplanPanel({
     isCurveReshape,
     isPolygonDraftBuildActive,
     levelId,
+    measuredSceneBBox,
     movingNode,
     siteVertexDragState,
     stopFloorplanViewAnimation,
+    surfaceSize.height,
+    surfaceSize.width,
   ])
 
   const viewBox = useMemo(() => {
@@ -7732,6 +7771,65 @@ export function FloorplanPanel({
     ],
   )
 
+  // Translate the view by a screen-space delta. A trackpad has no middle
+  // button, so a two-finger scroll is the only pan gesture a Mac user has;
+  // this mirrors the pointer-drag math but debounces the React commit the way
+  // zoom does, so a flick repaints the viewBox imperatively instead of
+  // rerendering the whole plan per wheel event.
+  const panViewportByPixels = useCallback(
+    (deltaXPx: number, deltaYPx: number) => {
+      if (!(Number.isFinite(deltaXPx) && Number.isFinite(deltaYPx))) return
+      if (deltaXPx === 0 && deltaYPx === 0) return
+      const currentViewport = latestViewportRef.current ?? latestFittedViewportRef.current
+      if (!currentViewport) return
+
+      const currentHeight = currentViewport.width / svgAspectRatio
+      const worldPerPixelX = currentViewport.width / Math.max(1, surfaceSize.width)
+      const worldPerPixelY = currentHeight / Math.max(1, surfaceSize.height)
+
+      const nextCenterSvg = {
+        x: currentViewport.centerX + deltaXPx * worldPerPixelX,
+        y: currentViewport.centerY + deltaYPx * worldPerPixelY,
+      }
+      const currentUserRotationDeg = latestFloorplanUserRotationDegRef.current
+      const currentSceneRotationDeg =
+        FLOORPLAN_VIEW_ROTATION_DEG + currentUserRotationDeg - buildingRotationDeg
+      const localCenter = rotateSvgPoint(nextCenterSvg, -currentSceneRotationDeg)
+      const nextViewport = {
+        centerX: nextCenterSvg.x,
+        centerY: nextCenterSvg.y,
+        width: currentViewport.width,
+      }
+
+      stopFloorplanViewAnimation()
+      if (floorplanRenderScaleCommitTimerRef.current !== null) {
+        window.clearTimeout(floorplanRenderScaleCommitTimerRef.current)
+        floorplanRenderScaleCommitTimerRef.current = null
+      }
+      floorplanViewportInteractionInProgressRef.current = true
+      applyFloorplanViewportImperatively(nextViewport)
+      scheduleFloorplanZoomCommit()
+      floorplanZoomPoseRef.current = {
+        localCenter,
+        userRotationDeg: currentUserRotationDeg,
+        viewWidth: currentViewport.width,
+      }
+      if (useEditor.getState().viewMode === 'split') {
+        publishFloorplanNavigationPose(localCenter, currentUserRotationDeg, currentViewport.width)
+      }
+    },
+    [
+      applyFloorplanViewportImperatively,
+      buildingRotationDeg,
+      publishFloorplanNavigationPose,
+      scheduleFloorplanZoomCommit,
+      stopFloorplanViewAnimation,
+      surfaceSize.height,
+      surfaceSize.width,
+      svgAspectRatio,
+    ],
+  )
+
   useEffect(
     () => () => {
       if (floorplanZoomCommitTimerRef.current !== null) {
@@ -7828,6 +7926,7 @@ export function FloorplanPanel({
   useEffect(() => {
     if (!isFloorplanOpen) return
     setMeasuredSceneBBox(null)
+    hasPerformedInitialFitRef.current = false
 
     if (!latestNavigationSyncPoseRef.current) {
       stopFloorplanViewAnimation()
@@ -8788,7 +8887,15 @@ export function FloorplanPanel({
 
   const handleNavigationPointerDown = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
-      if (event.button === 1 || (event.button === 0 && floorplanSpacePanPressedRef.current)) {
+      // Shift+drag joins middle-drag and space+drag as a pan gesture: it is the
+      // one that survives a laptop with no middle button and no free hand for
+      // the space bar. Not while a tool is armed — there Shift already means
+      // "bypass snapping" and stealing the drag would break placement.
+      const shiftPan = event.shiftKey && useEditor.getState().tool == null
+      if (
+        event.button === 1 ||
+        (event.button === 0 && (floorplanSpacePanPressedRef.current || shiftPan))
+      ) {
         event.preventDefault()
         event.stopPropagation()
 
@@ -10955,8 +11062,24 @@ export function FloorplanPanel({
       event.stopPropagation()
 
       floorplanNavigationSyncScheduler.flush()
-      const widthFactor = Math.exp(event.deltaY * (event.ctrlKey ? 0.003 : 0.0015))
-      zoomViewportAtClientPoint(event.clientX, event.clientY, widthFactor)
+
+      // macOS delivers a trackpad pinch as a wheel event with `ctrlKey`, and
+      // ⌘+scroll is the conventional keyboard zoom — both zoom. A mouse wheel
+      // emits coarse, integral, purely vertical ticks and keeps zooming too,
+      // because that is what a mouse user expects. Everything left over is a
+      // trackpad two-finger scroll, which now pans: a Mac has no middle button,
+      // so this was previously the one thing the plan could not do.
+      const isDiscreteWheelTick =
+        event.deltaX === 0 && Number.isInteger(event.deltaY) && Math.abs(event.deltaY) >= 40
+
+      if (event.ctrlKey || event.metaKey || isDiscreteWheelTick) {
+        const widthFactor = Math.exp(event.deltaY * (event.ctrlKey ? 0.003 : 0.0015))
+        zoomViewportAtClientPoint(event.clientX, event.clientY, widthFactor)
+        return
+      }
+
+      const deltaScale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1
+      panViewportByPixels(event.deltaX * deltaScale, event.deltaY * deltaScale)
     }
 
     const handleGestureStart = (event: Event) => {
@@ -11007,7 +11130,12 @@ export function FloorplanPanel({
       svg.removeEventListener('gesturechange', handleGestureChange)
       svg.removeEventListener('gestureend', handleGestureEnd)
     }
-  }, [commitFloorplanZoom, floorplanNavigationSyncScheduler, zoomViewportAtClientPoint])
+  }, [
+    commitFloorplanZoom,
+    floorplanNavigationSyncScheduler,
+    panViewportByPixels,
+    zoomViewportAtClientPoint,
+  ])
 
   const restoreGroundLevelStructureSelection = useCallback(() => {
     const sceneNodes = useScene.getState().nodes
@@ -11114,7 +11242,9 @@ export function FloorplanPanel({
   const referenceScaleHint = referenceScaleInputError
     ? null
     : referenceScaleLengthHint(referenceScaleValue, referenceScaleUnit)
+  __probeLog('panelBody', performance.now() - __probeStart)
   return (
+    <Profiler id="panel" onRender={(_i, _p, actual) => __probeLog('panelTree', actual)}>
     <div
       className="pointer-events-auto flex h-full w-full flex-col overflow-hidden bg-background/95"
       onPointerEnter={() => setFloorplanHovered(true)}
@@ -11460,7 +11590,12 @@ export function FloorplanPanel({
                     whose extent is derived from the current viewBox and
                     would create a measure→fit→measure loop. */}
                 <g ref={floorplanContentRef}>
-                  <FloorplanRegistryLayer />
+                  <Profiler
+                    id="registry"
+                    onRender={(_id, _phase, actual) => __probeLog('registry', actual)}
+                  >
+                    <FloorplanRegistryLayer />
+                  </Profiler>
                   {/* Faint footprint ghost of the node being placed by a
                       registry placement tool (e.g. column), following the
                       cursor. The 3D mesh preview is hidden in 2D, so this is
@@ -11650,5 +11785,6 @@ export function FloorplanPanel({
         ) : null}
       </div>
     </div>
+    </Profiler>
   )
 }
