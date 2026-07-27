@@ -21,6 +21,7 @@ import {
 import { memo, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { ViewerOverlay } from '../../components/viewer-overlay'
 import { ViewerZoneSystem } from '../../components/viewer-zone-system'
+import { useAutoFrame } from '../../hooks/use-auto-frame'
 import { type SaveStatus, useAutoSave } from '../../hooks/use-auto-save'
 import { useKeyboard } from '../../hooks/use-keyboard'
 import { type ActivePaintMaterial, hasActivePaintMaterial } from '../../lib/material-paint'
@@ -75,6 +76,7 @@ import { GroupRotateHandle } from './group-rotate-handle'
 import { GroupSelectionBox3D } from './group-selection-box-3d'
 import { NodeArrowHandles } from './node-arrow-handles'
 import { QuickMeasurementHud } from './quick-measurement-hud'
+import { RenderStatsOverlay, RenderStatsProbe } from './render-stats'
 import { RiserDiagramPanel } from './riser-diagram-panel'
 import { SelectionManager } from './selection-manager'
 import { SiteEdgeLabels } from './site-edge-labels'
@@ -781,6 +783,7 @@ const ViewerSceneContent = memo(function ViewerSceneContent({
       {!(isLoading || noEditing) && <ToolManager />}
       {isFirstPersonMode && <FirstPersonControls />}
       <CustomCameraControls />
+      <RenderStatsProbe />
       <ThumbnailGenerator onThumbnailCapture={onThumbnailCapture} />
       {!isFirstPersonMode && <SiteEdgeLabels />}
       <InteractiveSystem />
@@ -1094,6 +1097,7 @@ const ViewerCanvas = memo(function ViewerCanvas({
             />
           ) : null}
           <SelectionPersistenceManager enabled={hasLoadedInitialScene && !showLoader} />
+          {show3d ? <RenderStatsOverlay /> : null}
           <Viewer
             defaultRender={EDITOR_DEFAULT_RENDER}
             disablePostFx={disablePostFx}
@@ -1154,6 +1158,11 @@ export default function Editor({
   const isStudioMode = useEditor((s) => s.workspaceMode === 'studio')
 
   useKeyboard({ isVersionPreviewMode, disabled: isFirstPersonMode || isStudioMode })
+
+  // Frame the scene once it first arrives. Without this the 3D camera keeps its
+  // default pose, and — because that pose is what the 3D→2D sync bridge
+  // publishes — the floorplan inherits an absurd zoom before it can fit itself.
+  useAutoFrame()
 
   const { isLoadingSceneRef } = useAutoSave({
     onSave,
