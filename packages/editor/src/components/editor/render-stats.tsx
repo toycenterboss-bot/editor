@@ -46,6 +46,15 @@ export function RenderStatsProbe() {
 
   useEffect(() => {
     ;(window as unknown as { __renderStats?: RenderStatsSnapshot }).__renderStats = latest
+    // The renderer and scene are otherwise unreachable from the console — r3f
+    // keeps them in a store that isn't hung off the canvas. Publishing them is
+    // what makes a claim like "shadows cost N draw calls" checkable by hand.
+    if (process.env.NODE_ENV !== 'production') {
+      Object.assign(window as unknown as Record<string, unknown>, {
+        __gl: gl,
+        __scene: scene,
+      })
+    }
     // three.js clears the per-frame counters from its own animation callback,
     // which fires before this one — so by the time useFrame runs the numbers
     // are already zero. Taking ownership of the reset makes the read exact:
@@ -55,7 +64,7 @@ export function RenderStatsProbe() {
     return () => {
       if (info) info.autoReset = true
     }
-  }, [gl])
+  }, [gl, scene])
 
   useFrame(() => {
     latest.frame += 1
