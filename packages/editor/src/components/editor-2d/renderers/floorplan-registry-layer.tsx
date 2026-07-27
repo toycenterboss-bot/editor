@@ -29,6 +29,7 @@ import {
 import { useViewer } from '@pascal-app/viewer'
 import {
   type ComponentProps,
+  Fragment,
   memo,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -2379,16 +2380,20 @@ function InteractiveGeometryTree({
     switch (g.kind) {
       case 'group': {
         const transform = formatGroupTransform(g.transform)
+        const obstacle =
+          floorplanAnnotationObstacleMode(g) ??
+          (isFloorplanAnnotationObstacleGeometry(g) ? '' : undefined)
+        const children = g.children.map((child, i) => renderInteractive(child, i))
+        // A group that carries neither a transform nor an obstacle marker only
+        // forwards its children. On a floor of a thousand walls those pass-through
+        // wrappers were a third of the SVG the browser re-rasterises on every
+        // zoom frame, so they are worth not emitting.
+        if (!transform && obstacle === undefined) {
+          return <Fragment key={keyHint}>{children}</Fragment>
+        }
         return (
-          <g
-            data-floorplan-annotation-obstacle={
-              floorplanAnnotationObstacleMode(g) ??
-              (isFloorplanAnnotationObstacleGeometry(g) ? '' : undefined)
-            }
-            key={keyHint}
-            transform={transform}
-          >
-            {g.children.map((child, i) => renderInteractive(child, i))}
+          <g data-floorplan-annotation-obstacle={obstacle} key={keyHint} transform={transform}>
+            {children}
           </g>
         )
       }

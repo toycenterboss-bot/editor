@@ -1,7 +1,7 @@
 'use client'
 
 import { type FloorplanGeometry, loadAssetUrl } from '@pascal-app/core'
-import { memo, useEffect, useState } from 'react'
+import { Fragment, memo, useEffect, useState } from 'react'
 import { readFloorplanGeometryMetadata } from '../../../lib/floorplan/floorplan-extension'
 import {
   floorplanAnnotationObstacleMode,
@@ -556,26 +556,31 @@ function renderNode(
 
     case 'group': {
       const transform = formatTransform(g.transform)
-      const children = resolveDocumentAnnotationGroupChildren(g.children, annotationUnitsPerPoint)
+      const obstacle = isFloorplanAnnotationObstacleGeometry(g) ? '' : undefined
+      const children = resolveDocumentAnnotationGroupChildren(
+        g.children,
+        annotationUnitsPerPoint,
+      ).map((child, i) =>
+        renderNode(
+          child,
+          i,
+          pointerEventsOverride,
+          sceneRotationDeg,
+          annotationUnitsPerPoint,
+          screenUnitsPerPixel,
+          renderMode,
+        ),
+      )
+      // A group with neither a transform nor an obstacle marker only forwards
+      // its children. On a floor of a thousand walls those pass-through
+      // wrappers are a third of the SVG the browser re-rasterises on every
+      // zoom frame, so they are worth not emitting.
+      if (!transform && obstacle === undefined) {
+        return <Fragment key={keyHint}>{children}</Fragment>
+      }
       return (
-        <g
-          data-floorplan-annotation-obstacle={
-            isFloorplanAnnotationObstacleGeometry(g) ? '' : undefined
-          }
-          key={keyHint}
-          transform={transform}
-        >
-          {children.map((child, i) =>
-            renderNode(
-              child,
-              i,
-              pointerEventsOverride,
-              sceneRotationDeg,
-              annotationUnitsPerPoint,
-              screenUnitsPerPixel,
-              renderMode,
-            ),
-          )}
+        <g data-floorplan-annotation-obstacle={obstacle} key={keyHint} transform={transform}>
+          {children}
         </g>
       )
     }
