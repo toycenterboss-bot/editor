@@ -296,6 +296,8 @@ const FLOORPLAN_ROTATION_DEGREES_PER_PIXEL = 0.35
 const FLOORPLAN_VIEW_ANIMATION_TIME_CONSTANT_MS = 90
 const FLOORPLAN_VIEW_ANIMATION_EPSILON = 0.0005
 const FLOORPLAN_ROTATION_ANIMATION_EPSILON_DEG = 0.01
+const FLOORPLAN_COMPOSITE_MAX_SCALE = 4
+const FLOORPLAN_COMPOSITE_COVERAGE = 1.7
 type FloorplanViewport = {
   centerX: number
   centerY: number
@@ -317,6 +319,25 @@ function floorplanViewportEquals(a: FloorplanViewport | null, b: FloorplanViewpo
   if (a === b) return true
   if (!(a && b)) return false
   return a.centerX === b.centerX && a.centerY === b.centerY && a.width === b.width
+}
+
+// A composited view reuses pixels that were rasterized for `base`, so it only
+// looks right while the requested box stays inside what `base` actually painted
+// and the upscale stays below the point where vector edges turn to mush.
+function floorplanCompositeCovers(
+  base: FloorplanPresentationViewBox,
+  next: FloorplanPresentationViewBox,
+) {
+  const scale = base.width / next.width
+  if (!(scale > 0 && scale <= FLOORPLAN_COMPOSITE_MAX_SCALE)) return false
+  const marginX = (base.width * (FLOORPLAN_COMPOSITE_COVERAGE - 1)) / 2
+  const marginY = (base.height * (FLOORPLAN_COMPOSITE_COVERAGE - 1)) / 2
+  return (
+    next.minX >= base.minX - marginX &&
+    next.minY >= base.minY - marginY &&
+    next.minX + next.width <= base.minX + base.width + marginX &&
+    next.minY + next.height <= base.minY + base.height + marginY
+  )
 }
 
 function floorplanViewportWithinEpsilon(
@@ -5387,6 +5408,10 @@ export function FloorplanPanel({
   const floorplanRenderScaleCommitTimerRef = useRef<number | null>(null)
   const floorplanViewportInteractionInProgressRef = useRef(false)
   const floorplanImperativeViewBoxRef = useRef<FloorplanPresentationViewBox | null>(null)
+  const floorplanCompositeBaseRef = useRef<{
+    viewBox: FloorplanPresentationViewBox
+    surfaceWidthPx: number
+  } | null>(null)
   const floorplanNavigationSyncPresentationRef =
     useRef<FloorplanNavigationSyncPresentationState | null>(null)
   const applyFloorplanNavigationSyncPresentationRef = useRef<(pose: NavigationSyncPose) => void>(
@@ -6623,8 +6648,18 @@ export function FloorplanPanel({
   // so it re-renders per move without re-rendering this panel.
 
   const svgAspectRatio = surfaceSize.width / surfaceSize.height || 1
+  const clearFloorplanComposite = useCallback(() => {
+    if (!floorplanCompositeBaseRef.current) return
+    floorplanCompositeBaseRef.current = null
+    const svg = svgRef.current
+    if (!svg) return
+    svg.style.transform = ''
+    svg.style.transformOrigin = ''
+    svg.style.willChange = ''
+  }, [])
+
   const applyFloorplanViewportImperatively = useCallback(
-    (nextViewport: FloorplanViewport) => {
+    (nextViewport: FloorplanViewport, composite = false) => {
       const nextHeight = nextViewport.width / svgAspectRatio
       const nextMinX = nextViewport.centerX - nextViewport.width / 2
       const nextMinY = nextViewport.centerY - nextHeight / 2
@@ -6634,14 +6669,37 @@ export function FloorplanPanel({
         width: nextViewport.width,
         height: nextHeight,
       }
-      const nextPaintViewBox = getFloorplanRotationOverscanViewBox(nextViewBox)
-      floorplanImperativeViewBoxRef.current = nextViewBox
       hasUserAdjustedViewportRef.current = true
       latestViewportRef.current = nextViewport
-      svgRef.current?.setAttribute(
-        'viewBox',
-        `${nextMinX} ${nextMinY} ${nextViewport.width} ${nextHeight}`,
-      )
+
+      const svg = svgRef.current
+      const base = floorplanCompositeBaseRef.current
+      if (composite && svg && base && floorplanCompositeCovers(base.viewBox, nextViewBox)) {
+        // Re-project the already painted plan through the compositor. Writing
+        // `viewBox` here instead would rerasterize every vector node of the plan
+        // on every frame of the gesture. `floorplanImperativeViewBoxRef` keeps
+        // holding the base on purpose, so a React render mid-gesture repaints
+        // exactly what this transform is built on.
+        const pxPerUnit = base.surfaceWidthPx / nextViewBox.width
+        const scale = base.viewBox.width / nextViewBox.width
+        const translateX = (base.viewBox.minX - nextMinX) * pxPerUnit
+        const translateY = (base.viewBox.minY - nextMinY) * pxPerUnit
+        svg.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`
+        return
+      }
+
+      const nextPaintViewBox = getFloorplanRotationOverscanViewBox(nextViewBox)
+      floorplanImperativeViewBoxRef.current = nextViewBox
+      if (svg) {
+        if (base || composite) {
+          svg.style.transform = ''
+          svg.style.transformOrigin = composite ? '0 0' : ''
+          svg.style.willChange = composite ? 'transform' : ''
+        }
+        svg.setAttribute('viewBox', `${nextMinX} ${nextMinY} ${nextViewport.width} ${nextHeight}`)
+      }
+      floorplanCompositeBaseRef.current =
+        composite && svg ? { viewBox: nextViewBox, surfaceWidthPx: surfaceSize.width } : null
       const background = floorplanBackgroundRef.current
       if (background) {
         background.setAttribute('x', String(nextPaintViewBox.minX))
@@ -6650,7 +6708,7 @@ export function FloorplanPanel({
         background.setAttribute('height', String(nextPaintViewBox.height))
       }
     },
-    [svgAspectRatio],
+    [surfaceSize.width, svgAspectRatio],
   )
 
   const fittedViewport = useMemo(() => {
@@ -8239,6 +8297,10 @@ export function FloorplanPanel({
     }
     const nextViewport = latestViewportRef.current
     const pendingPose = floorplanZoomPoseRef.current
+    if (floorplanCompositeBaseRef.current) {
+      if (nextViewport) applyFloorplanViewportImperatively(nextViewport)
+      else clearFloorplanComposite()
+    }
     floorplanZoomPoseRef.current = null
     floorplanViewportInteractionInProgressRef.current = false
     floorplanImperativeViewBoxRef.current = null
@@ -8263,7 +8325,7 @@ export function FloorplanPanel({
         pendingPose.viewWidth,
       )
     }
-  }, [publishFloorplanNavigationPose])
+  }, [applyFloorplanViewportImperatively, clearFloorplanComposite, publishFloorplanNavigationPose])
 
   const scheduleFloorplanZoomCommit = useCallback(() => {
     if (floorplanZoomCommitTimerRef.current !== null) {
@@ -8336,7 +8398,7 @@ export function FloorplanPanel({
         floorplanRenderScaleCommitTimerRef.current = null
       }
       floorplanViewportInteractionInProgressRef.current = true
-      applyFloorplanViewportImperatively(nextViewport)
+      applyFloorplanViewportImperatively(nextViewport, true)
       scheduleFloorplanZoomCommit()
       const userRotationDeg = latestFloorplanUserRotationDegRef.current
       floorplanZoomPoseRef.current = { localCenter, userRotationDeg, viewWidth: nextWidth }
@@ -8391,7 +8453,7 @@ export function FloorplanPanel({
         floorplanRenderScaleCommitTimerRef.current = null
       }
       floorplanViewportInteractionInProgressRef.current = true
-      applyFloorplanViewportImperatively(nextViewport)
+      applyFloorplanViewportImperatively(nextViewport, true)
       scheduleFloorplanZoomCommit()
       floorplanZoomPoseRef.current = {
         localCenter,
@@ -8424,6 +8486,7 @@ export function FloorplanPanel({
       }
       floorplanViewportInteractionInProgressRef.current = false
       floorplanImperativeViewBoxRef.current = null
+      floorplanCompositeBaseRef.current = null
     },
     [],
   )
@@ -8431,6 +8494,10 @@ export function FloorplanPanel({
   const commitFloorplanPan = useCallback(() => {
     const nextViewport = latestViewportRef.current
     const pendingPose = floorplanPanPoseRef.current
+    if (floorplanCompositeBaseRef.current) {
+      if (nextViewport) applyFloorplanViewportImperatively(nextViewport)
+      else clearFloorplanComposite()
+    }
     floorplanPanPoseRef.current = null
     floorplanViewportInteractionInProgressRef.current = false
     floorplanImperativeViewBoxRef.current = null
@@ -8446,7 +8513,7 @@ export function FloorplanPanel({
         pendingPose.viewWidth,
       )
     }
-  }, [publishFloorplanNavigationPose])
+  }, [applyFloorplanViewportImperatively, clearFloorplanComposite, publishFloorplanNavigationPose])
 
   const commitFloorplanRotation = useCallback(
     (rotationState: FloorplanRotationState) => {
@@ -8496,10 +8563,12 @@ export function FloorplanPanel({
     floorplanRotationStateRef.current = null
     floorplanViewportInteractionInProgressRef.current = false
     floorplanImperativeViewBoxRef.current = null
+    clearFloorplanComposite()
     setIsSpacePanPressed(false)
     setIsPanning(false)
     setIsRotatingFloorplan(false)
   }, [
+    clearFloorplanComposite,
     commitFloorplanPan,
     commitFloorplanRotation,
     commitFloorplanZoom,
@@ -9531,6 +9600,11 @@ export function FloorplanPanel({
         { x: currentViewport.centerX, y: currentViewport.centerY },
         -currentSceneRotationDeg,
       )
+      // Rotation drives the same element through a centre-origin transform, so
+      // a live zoom composite has to be baked back into the viewBox first.
+      if (floorplanCompositeBaseRef.current) {
+        applyFloorplanViewportImperatively(currentViewport)
+      }
       const svgStyle = {
         transform: svg.style.transform,
         transformOrigin: svg.style.transformOrigin,
@@ -9556,6 +9630,7 @@ export function FloorplanPanel({
       event.currentTarget.setPointerCapture(event.pointerId)
     },
     [
+      applyFloorplanViewportImperatively,
       commitFloorplanZoom,
       buildingRotationDeg,
       floorplanNavigationSyncScheduler,
@@ -9862,7 +9937,7 @@ export function FloorplanPanel({
           centerY: nextCenterSvg.y,
           width: currentViewport.width,
         }
-        applyFloorplanViewportImperatively(nextViewport)
+        applyFloorplanViewportImperatively(nextViewport, true)
         floorplanPanPoseRef.current = {
           localCenter,
           userRotationDeg: currentUserRotationDeg,
