@@ -813,7 +813,10 @@ export const CustomCameraControls = () => {
       if (isPreviewMode) {
         // In preview mode, left-click is always pan (viewer-style)
         controls.current.mouseButtons.left = CameraControlsImpl.ACTION.SCREEN_PAN
-      } else if (space) {
+      } else if (space || shift) {
+        // Space+drag has always panned, but it needs a free hand and is
+        // undiscoverable; Shift+drag is the gesture a laptop user reaches for
+        // when there is no middle mouse button to hold.
         controls.current.mouseButtons.left = CameraControlsImpl.ACTION.SCREEN_PAN
       } else {
         controls.current.mouseButtons.left = CameraControlsImpl.ACTION.NONE
@@ -893,14 +896,31 @@ export const CustomCameraControls = () => {
 
     const onPointerDown = (event: PointerEvent) => {
       if (!(event.target instanceof Node) || !gl.domElement.contains(event.target)) return
-      if (event.button !== 1 && !(event.button === 0 && keyState.space)) return
+      if (event.button !== 1 && !(event.button === 0 && (keyState.space || event.shiftKey))) return
 
       panPointerId = event.pointerId
       panPointerButton = event.button
       updateNavigationCursor()
     }
 
-    const onWheel = () => {
+    // Runs in the capture phase, ahead of camera-controls' own wheel handler,
+    // so switching the bound action here decides what this very event does.
+    // A trackpad two-finger scroll should move the camera sideways — otherwise
+    // a Mac can only orbit and dolly, never translate. Pinch (`ctrlKey` on
+    // macOS), ⌘+scroll, and a real mouse wheel (coarse, integral, vertical
+    // only) all keep dollying.
+    const onWheel = (event: WheelEvent) => {
+      const controlsInstance = controls.current
+      if (controlsInstance) {
+        const isDiscreteWheelTick =
+          event.deltaX === 0 && Number.isInteger(event.deltaY) && Math.abs(event.deltaY) >= 40
+        const wantsZoom = event.ctrlKey || event.metaKey || isDiscreteWheelTick
+        controlsInstance.mouseButtons.wheel = wantsZoom
+          ? cameraMode === 'orthographic'
+            ? CameraControlsImpl.ACTION.ZOOM
+            : CameraControlsImpl.ACTION.DOLLY
+          : CameraControlsImpl.ACTION.TRUCK
+      }
       beginLocalCameraInteraction()
       cameraDraggingLifecycle.scheduleEnd()
     }
@@ -1291,7 +1311,7 @@ export const CustomCameraControls = () => {
   return (
     <CameraControls
       makeDefault
-      maxDistance={100}
+      maxDistance={1500}
       maxPolarAngle={maxPolarAngle}
       minDistance={minDistance}
       minPolarAngle={0}
@@ -1302,7 +1322,13 @@ export const CustomCameraControls = () => {
       onRest={onRest}
       onSleep={onRest}
       onTransitionStart={onTransitionStart}
-      ref={controls}
+      ref={(instance) => {
+        controls.current = instance
+        if (typeof window !== 'undefined') {
+          // @ts-expect-error debug handle
+          window.__cc = instance
+        }
+      }}
       restThreshold={0.01}
       touches={touches}
     />
