@@ -404,6 +404,7 @@ export class SpatialGridManager {
   private readonly renderedSlabPolygons = new Map<string, Array<[number, number]>>()
 
   private invalidateRenderedSlabPolygons(levelId: string) {
+    this.supportInputsRevision += 1
     const slabMap = this.slabsByLevel.get(levelId)
     if (!slabMap) return
     for (const slabId of slabMap.keys()) this.renderedSlabPolygons.delete(slabId)
@@ -1062,13 +1063,64 @@ export class SpatialGridManager {
       }
     }
 
+    const inputs = this.getSupportInputs(levelId, slabMap)
+
     return computeWallSlabSupport(
       { start, end, curveOffset, thickness },
-      [...slabMap.values()].map((slab) => this.effectiveSlabRecord(slab)),
-      this.getLevelWallNodes(levelId).map((wall) => getEffectiveNode(wall)),
+      inputs.slabs,
+      inputs.walls,
       preferredSlabId,
       maxElevation,
     )
+  }
+
+  /**
+   * Effective slab and wall records for a level, held BY IDENTITY. A single
+   * viewer pass queries support once per wall, and each query used to derive
+   * both arrays afresh — mapping every wall on the level through
+   * `getEffectiveNode` — which also defeated the rendered-polygon memo
+   * downstream in `computeWallSlabSupport`. Rebuilt only when the scene
+   * nodes, either live-preview store, or the manager's own slab/wall
+   * bookkeeping changes.
+   */
+  private supportInputsRevision = 0
+  private readonly supportInputs = new Map<
+    string,
+    {
+      revision: number
+      nodes: object
+      overrides: object
+      transforms: object
+      slabs: SlabNode[]
+      walls: WallNode[]
+    }
+  >()
+
+  private getSupportInputs(levelId: string, slabMap: Map<string, SlabNode>) {
+    const nodes = useScene.getState().nodes
+    const overrides = useLiveNodeOverrides.getState().overrides
+    const transforms = useLiveTransforms.getState().transforms
+    const cached = this.supportInputs.get(levelId)
+    if (
+      cached &&
+      cached.revision === this.supportInputsRevision &&
+      cached.nodes === nodes &&
+      cached.overrides === overrides &&
+      cached.transforms === transforms
+    ) {
+      return cached
+    }
+
+    const next = {
+      revision: this.supportInputsRevision,
+      nodes,
+      overrides,
+      transforms,
+      slabs: [...slabMap.values()].map((slab) => this.effectiveSlabRecord(slab)),
+      walls: this.getLevelWallNodes(levelId).map((wall) => getEffectiveNode(wall)),
+    }
+    this.supportInputs.set(levelId, next)
+    return next
   }
 
   /**
@@ -1191,6 +1243,8 @@ export class SpatialGridManager {
     this.ceilings.clear()
     this.itemCeilingMap.clear()
     this.renderedSlabPolygons.clear()
+    this.supportInputs.clear()
+    this.supportInputsRevision += 1
   }
 }
 
