@@ -4,6 +4,7 @@ import type { FloorplanPalette } from '@pascal-app/core'
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useLayoutEffect,
   useMemo,
@@ -160,6 +161,19 @@ export function useFloorplanStaticUnitsPerPixel(): number {
     staticValue?.getUnitsPerPixel ?? readDefaultFloorplanScale,
     staticValue?.getUnitsPerPixel ?? readDefaultFloorplanScale,
   )
+}
+
+/**
+ * Level-of-detail gate. Subscribes to the same scale store but snapshots a
+ * boolean, so a consumer only re-renders when the zoom crosses `threshold`
+ * — not on every wheel tick.
+ */
+export function useFloorplanRenderScaleAbove(threshold: number): boolean {
+  const staticValue = useContext(FloorplanStaticRenderContext)
+  const subscribe = staticValue?.subscribeUnitsPerPixel ?? subscribeToNoFloorplanScale
+  const read = staticValue?.getUnitsPerPixel ?? readDefaultFloorplanScale
+  const getSnapshot = useCallback(() => read() > threshold, [read, threshold])
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
 export function useFloorplanSceneRotation(): number {

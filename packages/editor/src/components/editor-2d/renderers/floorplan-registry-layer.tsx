@@ -92,6 +92,7 @@ import {
   startFloorplanGroupRotate,
 } from '../floorplan-group-move'
 import {
+  useFloorplanRenderScaleAbove,
   useFloorplanSceneRotation,
   useFloorplanStaticRender,
   useFloorplanStaticUnitsPerPixel,
@@ -410,6 +411,11 @@ function snapshotsToUpdates(snapshots: NodeSnapshot[]) {
 // hidden; committed scene edits still flow through `useScene`.
 const EMPTY_LIVE_OVERRIDES: Map<string, LiveNodeOverrides> = new Map()
 
+// Scene units (metres) per screen pixel past which automatic dimension
+// chains stop being drawn. 0.02 ≈ 50 px per metre — below that a 3 m wall
+// carries a label plate wider than the wall itself.
+const FLOORPLAN_DIMENSION_LOD_UNITS_PER_PIXEL = 0.02
+
 export const FloorplanRegistryLayer = memo(function FloorplanRegistryLayer() {
   const selectedLevelId = useViewer((s) => s.selection.levelId)
   const selectedBuildingId = useViewer((s) => s.selection.buildingId)
@@ -489,7 +495,20 @@ export const FloorplanRegistryLayer = memo(function FloorplanRegistryLayer() {
   // hidden floor-plan tree.
   const floorplanVisible = useEditor((s) => s.viewMode !== '3d')
   const drawingType = useDrawingView((s) => s.drawingType)
-  const annotationVisibility = useFloorplanAnnotationVisibility((s) => s.visibility)
+  const rawAnnotationVisibility = useFloorplanAnnotationVisibility((s) => s.visibility)
+  // Level of detail: automatic dimension chains are drawn at a fixed screen
+  // size, so zoomed out far enough they overlap into unreadable noise while
+  // still costing the majority of the layer's paint time. Drop them past the
+  // threshold. The gate snapshots a boolean, so crossing it re-renders once
+  // instead of on every wheel tick.
+  const isCoarseZoom = useFloorplanRenderScaleAbove(FLOORPLAN_DIMENSION_LOD_UNITS_PER_PIXEL)
+  const annotationVisibility = useMemo(
+    () =>
+      isCoarseZoom
+        ? { ...rawAnnotationVisibility, automaticDimensions: false }
+        : rawAnnotationVisibility,
+    [isCoarseZoom, rawAnnotationVisibility],
+  )
   const wallDimensionReference = useFloorplanAnnotationVisibility((s) => s.wallDimensionReference)
   // Elevator builders read runtime state imperatively, so entries include this
   // rare-changing ref in their cache deps.
@@ -2300,9 +2319,45 @@ type InteractiveGeometryProps = {
   onMoveHandlePointerDown: (event: ReactPointerEvent<SVGGElement>) => void
 }
 
-export const InteractiveGeometry = memo(function InteractiveGeometry({
+// Kinds whose size is expressed in screen pixels and therefore has to be
+// converted through the live zoom scale on every zoom step. Everything
+// else is either in world units or uses `non-scaling-stroke`, which the
+// browser resolves in screen space without React's help. Subscribing the
+// whole entry tree to the scale store made a single wheel tick re-render
+// all ~2000 registry entries; only these branches actually need it.
+const FLOORPLAN_RENDER_SCALE_DEPENDENT_KINDS: ReadonlySet<string> = new Set([
+  'endpoint-handle',
+  'midpoint-handle',
+  'dimension-label',
+  'equal-spacing-badge',
+])
+
+function floorplanGeometryNeedsRenderScale(geometry: FloorplanGeometry): boolean {
+  if (FLOORPLAN_RENDER_SCALE_DEPENDENT_KINDS.has(geometry.kind)) return true
+  if (geometry.kind !== 'group') return false
+  return geometry.children.some(floorplanGeometryNeedsRenderScale)
+}
+
+export const InteractiveGeometry = memo(function InteractiveGeometry(
+  props: InteractiveGeometryProps,
+): React.ReactElement {
+  if (props.unitsPerPixel !== undefined) {
+    return <InteractiveGeometryTree {...props} unitsPerPixel={props.unitsPerPixel} />
+  }
+  if (!floorplanGeometryNeedsRenderScale(props.geometry)) {
+    return <InteractiveGeometryTree {...props} unitsPerPixel={1} />
+  }
+  return <LiveScaleInteractiveGeometry {...props} />
+}, shallowPropsAreEqual)
+
+function LiveScaleInteractiveGeometry(props: InteractiveGeometryProps): React.ReactElement {
+  const unitsPerPixel = useFloorplanStaticUnitsPerPixel()
+  return <InteractiveGeometryTree {...props} unitsPerPixel={unitsPerPixel} />
+}
+
+function InteractiveGeometryTree({
   geometry,
-  unitsPerPixel: unitsPerPixelOverride,
+  unitsPerPixel,
   palette,
   hatchPatternId,
   hoveredHandleId,
@@ -2315,10 +2370,9 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
   onHandleHoverChange,
   onHandlePointerDown,
   onMoveHandlePointerDown,
-}: InteractiveGeometryProps): React.ReactElement {
-  const liveUnitsPerPixel = useFloorplanStaticUnitsPerPixel()
-  const unitsPerPixel = unitsPerPixelOverride ?? liveUnitsPerPixel
-
+}: Omit<InteractiveGeometryProps, 'unitsPerPixel'> & {
+  unitsPerPixel: number
+}): React.ReactElement {
   return renderInteractive(geometry, 0)
 
   function renderInteractive(g: FloorplanGeometry, keyHint: number): React.ReactElement {
@@ -2357,7 +2411,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
             pointerEvents={isMarqueeSelectionActive ? 'none' : (g.pointerEvents ?? 'stroke')}
             stroke="transparent"
             strokeLinecap="round"
-            strokeWidth={g.strokeWidthPx * unitsPerPixel}
+            strokeWidth={g.strokeWidthPx}
             style={{ cursor: g.cursor ?? 'pointer' }}
             vectorEffect="non-scaling-stroke"
             x1={g.x1}
@@ -2413,7 +2467,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               r={outerRadius}
               stroke={hoverStroke}
               strokeOpacity={isActive ? 0.24 : 0.16}
-              strokeWidth={ENDPOINT_HOVER_GLOW_STROKE_WIDTH_PX * unitsPerPixel}
+              strokeWidth={ENDPOINT_HOVER_GLOW_STROKE_WIDTH_PX}
               style={{ opacity: isHovered || isActive ? 1 : 0, transition: HOVER_TRANSITION }}
               vectorEffect="non-scaling-stroke"
             />
@@ -2425,7 +2479,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               r={outerRadius}
               stroke={hoverStroke}
               strokeOpacity={isActive ? 0.72 : 0.52}
-              strokeWidth={ENDPOINT_HOVER_RING_STROKE_WIDTH_PX * unitsPerPixel}
+              strokeWidth={ENDPOINT_HOVER_RING_STROKE_WIDTH_PX}
               style={{ opacity: isHovered || isActive ? 1 : 0, transition: HOVER_TRANSITION }}
               vectorEffect="non-scaling-stroke"
             />
@@ -2467,7 +2521,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               pointerEvents="all"
               r={outerRadius}
               stroke="transparent"
-              strokeWidth={ENDPOINT_HIT_STROKE_WIDTH_PX * unitsPerPixel}
+              strokeWidth={ENDPOINT_HIT_STROKE_WIDTH_PX}
               style={{ cursor: 'pointer' }}
               vectorEffect="non-scaling-stroke"
             />
@@ -2735,7 +2789,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               stroke={stroke}
               strokeLinecap="round"
               strokeOpacity={0.18}
-              strokeWidth={glowWidthPx * unitsPerPixel}
+              strokeWidth={glowWidthPx}
               style={{ opacity: showVisible ? 1 : 0, transition: HOVER_TRANSITION }}
               vectorEffect="non-scaling-stroke"
               x1={g.x1}
@@ -2749,7 +2803,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               stroke={stroke}
               strokeLinecap="round"
               strokeOpacity={isActive ? 0.95 : 0.82}
-              strokeWidth={visibleWidthPx * unitsPerPixel}
+              strokeWidth={visibleWidthPx}
               style={{ opacity: showVisible ? 1 : 0, transition: HOVER_TRANSITION }}
               vectorEffect="non-scaling-stroke"
               x1={g.x1}
@@ -2765,7 +2819,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               pointerEvents="stroke"
               stroke="transparent"
               strokeLinecap="round"
-              strokeWidth={hitWidthPx * unitsPerPixel}
+              strokeWidth={hitWidthPx}
               style={{ cursor: 'pointer' }}
               vectorEffect="non-scaling-stroke"
               x1={g.x1}
@@ -2803,7 +2857,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               r={radius + 2 * unitsPerPixel}
               stroke={hoverStroke}
               strokeOpacity={0.16}
-              strokeWidth={ENDPOINT_HOVER_RING_STROKE_WIDTH_PX * unitsPerPixel}
+              strokeWidth={ENDPOINT_HOVER_RING_STROKE_WIDTH_PX}
               style={{ opacity: isHovered || isActive ? 1 : 0, transition: HOVER_TRANSITION }}
               vectorEffect="non-scaling-stroke"
             />
@@ -2854,7 +2908,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
               pointerEvents="all"
               r={radius + unitsPerPixel * 2}
               stroke="transparent"
-              strokeWidth={ENDPOINT_HIT_STROKE_WIDTH_PX * unitsPerPixel}
+              strokeWidth={ENDPOINT_HIT_STROKE_WIDTH_PX}
               style={{ cursor: 'pointer' }}
               vectorEffect="non-scaling-stroke"
             />
@@ -3045,7 +3099,7 @@ export const InteractiveGeometry = memo(function InteractiveGeometry({
         )
     }
   }
-}, shallowPropsAreEqual)
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
