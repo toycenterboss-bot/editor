@@ -8,6 +8,7 @@ import {
   getWallPlaneTop,
   getWallThickness,
   isCurvedWall,
+  resolveLevelCoveringContext,
   resolveLevelId,
   resolveWallTop,
   sceneRegistry,
@@ -156,7 +157,10 @@ function getWallTopY(wall: WallNode, nodes: Readonly<Record<string, AnyNode>>) {
     wall.thickness,
     wall.supportSlabId,
   )
-  const planeTop = getWallPlaneTop(wall, levelId, nodes as Record<string, AnyNode>)
+  const planeTop = getWallPlaneTop(
+    wall,
+    resolveLevelCoveringContext(levelId, nodes as Record<AnyNodeId, AnyNode>),
+  )
   return resolveWallTop(wall, planeTop, support.elevation) + WALL_TOP_HIGHLIGHT_LIFT
 }
 

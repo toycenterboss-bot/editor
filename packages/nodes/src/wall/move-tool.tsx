@@ -17,6 +17,7 @@ import {
   planAutoCeilingsForLevel,
   planAutoSlabsForLevel,
   planWallMoveJunctions,
+  resolveLevelCoveringContext,
   resolveWallSupportSlabPatch,
   resumeSceneHistory,
   type SlabNode,
@@ -288,13 +289,14 @@ export const MoveWallTool: React.FC<{ node: WallNode }> = ({ node }) => {
       const existingSlabs = getLevelSlabs(levelId, sceneState.nodes)
       const slabPlan = planAutoSlabsForLevel(roomPolygons, existingSlabs)
       const levelNode = sceneState.nodes[levelId as AnyNodeId]
+      const coveringContext = resolveLevelCoveringContext(levelId, sceneState.nodes)
       const ceilingPlan = planAutoCeilingsForLevel(
         roomPolygons,
         getLevelCeilings(levelId, sceneState.nodes),
         {
           storeyHeight:
             levelNode?.type === 'level' ? getStoredLevelHeight(levelNode as LevelNode) : undefined,
-          ceilingClampBound: (polygon) => getCeilingClampBound(levelId, sceneState.nodes, polygon),
+          ceilingClampBound: (polygon) => getCeilingClampBound(coveringContext, polygon),
         },
       )
 

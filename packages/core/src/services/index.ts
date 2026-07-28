@@ -113,7 +113,9 @@ export {
   getLevelElevations,
   getStoredLevelHeight,
   getWallPlaneTop,
+  type LevelCoveringContext,
   type LevelElevation,
+  resolveLevelCoveringContext,
 } from './storey'
 export {
   buildPortComponents,

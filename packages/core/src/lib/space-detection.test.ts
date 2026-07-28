@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { BuildingNode, CeilingNode, LevelNode, SlabNode, WallNode, ZoneNode } from '../schema'
 import type { AnyNode, AnyNodeId } from '../schema/types'
 import { resolveCeilingHeight } from '../services/level-height'
-import { getCeilingClampBound } from '../services/storey'
+import { getCeilingClampBound, resolveLevelCoveringContext } from '../services/storey'
 import {
   detectSpacesForLevel,
   initSpaceDetectionSync,
@@ -209,7 +209,8 @@ describe('stage 3-B ceiling clamp bound', () => {
     const nodes = stackedDeckNodes()
     const created = planAutoCeilingsForLevel([roomPolygon()], [], {
       storeyHeight: 2.5,
-      ceilingClampBound: (polygon) => getCeilingClampBound('level_0', nodes, polygon),
+      ceilingClampBound: (polygon) =>
+        getCeilingClampBound(resolveLevelCoveringContext('level_0', nodes), polygon),
     }).create[0]
 
     expect(created).toBeDefined()
@@ -243,7 +244,8 @@ describe('stage 3-B ceiling clamp bound', () => {
 
     const plan = planAutoCeilingsForLevel([roomPolygon()], [manual], {
       storeyHeight: 2.5,
-      ceilingClampBound: (polygon) => getCeilingClampBound('level_0', nodes, polygon),
+      ceilingClampBound: (polygon) =>
+        getCeilingClampBound(resolveLevelCoveringContext('level_0', nodes), polygon),
     })
 
     expect(plan.update).toHaveLength(0)
@@ -257,7 +259,8 @@ describe('stage 3-B ceiling clamp bound', () => {
 
     const plan = planAutoCeilingsForLevel([roomPolygon()], [manual], {
       storeyHeight: 2.5,
-      ceilingClampBound: (polygon) => getCeilingClampBound('level_0', nodes, polygon),
+      ceilingClampBound: (polygon) =>
+        getCeilingClampBound(resolveLevelCoveringContext('level_0', nodes), polygon),
     })
 
     expect(plan.create).toHaveLength(0)

@@ -6,6 +6,7 @@ import {
   type AnyNodeId,
   calculateLevelMiters,
   getWallPlaneTop,
+  resolveLevelCoveringContext,
   WallNode,
 } from '@pascal-app/core'
 import { generateExtrudedWall } from './wall-system'
@@ -107,7 +108,7 @@ describe('wall support extension', () => {
       },
     } as unknown as Record<AnyNodeId, AnyNode>
 
-    const planeTop = getWallPlaneTop(wall, 'level_0', nodes)
+    const planeTop = getWallPlaneTop(wall, resolveLevelCoveringContext('level_0', nodes))
     expect(planeTop).toBeCloseTo(2.2)
 
     const geometry = generateExtrudedWall(

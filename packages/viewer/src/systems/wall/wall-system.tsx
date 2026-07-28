@@ -18,6 +18,7 @@ import {
   isCurvedWall,
   type Point2D,
   pointToKey,
+  resolveLevelCoveringContext,
   resolveLevelId,
   resolveWallTop,
   sceneRegistry,
@@ -736,7 +737,7 @@ function updateWallGeometry(wallId: string, miterData: WallMiterData) {
   const levelId = resolveLevelId(node, nodes)
   // Covering-clamped plane: a flush/thick slab on the level above shortens
   // the plane-bound walls below it (explicit-height walls ignore the value).
-  const planeTop = getWallPlaneTop(node, levelId, nodes)
+  const planeTop = getWallPlaneTop(node, resolveLevelCoveringContext(levelId, nodes))
   const slabSupport = spatialGridManager.getSlabSupportForWall(
     levelId,
     node.start,

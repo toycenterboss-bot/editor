@@ -4,7 +4,7 @@ import { computeWallSlabSupport, pointInPolygon } from '../systems/slab/slab-sup
 import { resolveWallTop } from '../systems/wall/wall-top'
 // Cycle with ./storey (it imports DEFAULT_LEVEL_HEIGHT from here) is safe:
 // both sides only reference the other inside function bodies.
-import { CEILING_CLAMP_MARGIN, getCeilingClampBound } from './storey'
+import { CEILING_CLAMP_MARGIN, getCeilingClampBound, resolveLevelCoveringContext } from './storey'
 
 export const DEFAULT_LEVEL_HEIGHT = 2.5
 
@@ -23,7 +23,7 @@ export function resolveCeilingHeight(
   if (ceiling.height != null) return ceiling.height
   const bound =
     typeof ceiling.parentId === 'string'
-      ? getCeilingClampBound(ceiling.parentId, nodes, ceiling.polygon)
+      ? getCeilingClampBound(resolveLevelCoveringContext(ceiling.parentId, nodes), ceiling.polygon)
       : Number.POSITIVE_INFINITY
   return Number.isFinite(bound) ? bound : DEFAULT_LEVEL_HEIGHT - CEILING_CLAMP_MARGIN
 }

@@ -12,10 +12,14 @@ import {
   getLevelElevations,
   getStoredLevelHeight,
   getWallPlaneTop,
+  resolveLevelCoveringContext,
 } from './storey'
 
 const buildNodes = (list: AnyNode[]): Record<AnyNodeId, AnyNode> =>
   Object.fromEntries(list.map((node) => [node.id, node])) as Record<AnyNodeId, AnyNode>
+
+const covering = (levelId: string, nodes: Record<AnyNodeId, AnyNode>) =>
+  resolveLevelCoveringContext(levelId, nodes)
 
 const level = (
   id: string,
@@ -293,12 +297,12 @@ describe('getCoveringSlabUndersideAt', () => {
     // Flush deck occupying [-0.3, 0] above the plane: underside sits at
     // storeyHeight + (0 - 0.3) = 2.2 over the queried level's floor.
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getCoveringSlabUndersideAt('level_0', nodes, 2, 2)).toBeCloseTo(2.2)
+    expect(getCoveringSlabUndersideAt(covering('level_0', nodes), 2, 2)).toBeCloseTo(2.2)
   })
 
   test('returns null outside the slab polygon', () => {
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getCoveringSlabUndersideAt('level_0', nodes, 10, 10)).toBeNull()
+    expect(getCoveringSlabUndersideAt(covering('level_0', nodes), 10, 10)).toBeNull()
   })
 
   test('a hole in the slab vetoes coverage', () => {
@@ -316,15 +320,15 @@ describe('getCoveringSlabUndersideAt', () => {
         ],
       }),
     ])
-    expect(getCoveringSlabUndersideAt('level_0', nodes, 2, 2)).toBeNull()
-    expect(getCoveringSlabUndersideAt('level_0', nodes, 0.5, 0.5)).toBeCloseTo(2.2)
+    expect(getCoveringSlabUndersideAt(covering('level_0', nodes), 2, 2)).toBeNull()
+    expect(getCoveringSlabUndersideAt(covering('level_0', nodes), 0.5, 0.5)).toBeCloseTo(2.2)
   })
 
   test('recessed pools never cover', () => {
     const nodes = stackedNodes([
       slabNode('slab_pool', { elevation: -1, thickness: 0.3, recessed: true }),
     ])
-    expect(getCoveringSlabUndersideAt('level_0', nodes, 2, 2)).toBeNull()
+    expect(getCoveringSlabUndersideAt(covering('level_0', nodes), 2, 2)).toBeNull()
   })
 
   test('the lowest underside wins among overlapping covering slabs', () => {
@@ -333,12 +337,12 @@ describe('getCoveringSlabUndersideAt', () => {
       slabNode('slab_floor', {}),
       slabNode('slab_deck', { elevation: 0, thickness: 0.3 }),
     ])
-    expect(getCoveringSlabUndersideAt('level_0', nodes, 2, 2)).toBeCloseTo(2.2)
+    expect(getCoveringSlabUndersideAt(covering('level_0', nodes), 2, 2)).toBeCloseTo(2.2)
   })
 
   test('returns null when there is no level above', () => {
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getCoveringSlabUndersideAt('level_1', nodes, 2, 2)).toBeNull()
+    expect(getCoveringSlabUndersideAt(covering('level_1', nodes), 2, 2)).toBeNull()
   })
 })
 
@@ -350,12 +354,12 @@ describe('getWallPlaneTop', () => {
 
   test('no covering slab → the stored level height', () => {
     const nodes = stackedNodes([], 3)
-    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), 'level_0', nodes)).toBe(3)
+    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), covering('level_0', nodes))).toBe(3)
   })
 
   test('a flush thick deck above clamps the plane to its underside', () => {
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), 'level_0', nodes)).toBeCloseTo(2.2)
+    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), covering('level_0', nodes))).toBeCloseTo(2.2)
   })
 
   test('a slab covering only part of the span clamps via the min of the samples', () => {
@@ -373,19 +377,19 @@ describe('getWallPlaneTop', () => {
         thickness: 0.3,
       }),
     ])
-    expect(getWallPlaneTop(wallAt([0, 2], [4, 2]), 'level_0', nodes)).toBeCloseTo(2.2)
+    expect(getWallPlaneTop(wallAt([0, 2], [4, 2]), covering('level_0', nodes))).toBeCloseTo(2.2)
   })
 
   test('a recessed slab above is ignored', () => {
     const nodes = stackedNodes([
       slabNode('slab_pool', { elevation: -1, thickness: 0.3, recessed: true }),
     ])
-    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), 'level_0', nodes)).toBe(2.5)
+    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), covering('level_0', nodes))).toBe(2.5)
   })
 
   test('falls back to the default height when the level does not resolve', () => {
     const nodes = stackedNodes([])
-    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), 'level_missing', nodes)).toBe(
+    expect(getWallPlaneTop(wallAt([0.5, 2], [3.5, 2]), covering('level_missing', nodes))).toBe(
       DEFAULT_LEVEL_HEIGHT,
     )
   })
@@ -402,8 +406,8 @@ describe('getWallPlaneTop', () => {
     const wall2 = nodes['wall_on4rj410n69n3rzf' as AnyNodeId] as WallNode
     // storeyHeight 2.7 + (slab elevation 0.19757… - thickness 0.5)
     const underside = 2.7 + (0.19757210573188194 - 0.5)
-    expect(getWallPlaneTop(wall1, levelId, nodes)).toBeCloseTo(underside)
-    expect(getWallPlaneTop(wall2, levelId, nodes)).toBeCloseTo(underside)
+    expect(getWallPlaneTop(wall1, covering(levelId, nodes))).toBeCloseTo(underside)
+    expect(getWallPlaneTop(wall2, covering(levelId, nodes))).toBeCloseTo(underside)
   })
 
   test('all four rectangle walls under a same-footprint covering slab clamp', () => {
@@ -429,23 +433,25 @@ describe('getWallPlaneTop', () => {
       ],
     ]
     for (const [start, end] of walls) {
-      expect(getWallPlaneTop(wallAt(start, end), 'level_0', nodes)).toBeCloseTo(2.2)
+      expect(getWallPlaneTop(wallAt(start, end), covering('level_0', nodes))).toBeCloseTo(2.2)
     }
   })
 
   test('a diagonal wall under the covering slab clamps', () => {
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getWallPlaneTop(wallAt([0.5, 0.5], [3.5, 3.5]), 'level_0', nodes)).toBeCloseTo(2.2)
+    expect(getWallPlaneTop(wallAt([0.5, 0.5], [3.5, 3.5]), covering('level_0', nodes))).toBeCloseTo(
+      2.2,
+    )
   })
 
   test('a wall fully outside the covering slab keeps the storey height', () => {
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getWallPlaneTop(wallAt([6, 0], [6, 4]), 'level_0', nodes)).toBe(2.5)
+    expect(getWallPlaneTop(wallAt([6, 0], [6, 4]), covering('level_0', nodes))).toBe(2.5)
   })
 
   test('a wall partially overlapping the covering slab clamps', () => {
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getWallPlaneTop(wallAt([2, 2], [8, 2]), 'level_0', nodes)).toBeCloseTo(2.2)
+    expect(getWallPlaneTop(wallAt([2, 2], [8, 2]), covering('level_0', nodes))).toBeCloseTo(2.2)
   })
 })
 
@@ -459,14 +465,14 @@ describe('getCeilingClampBound', () => {
 
   test('with no covering slab the bound is the storey plane minus the margin', () => {
     const nodes = stackedNodes([])
-    expect(getCeilingClampBound('level_0', nodes, ceilingPolygon)).toBeCloseTo(
+    expect(getCeilingClampBound(covering('level_0', nodes), ceilingPolygon)).toBeCloseTo(
       2.5 - CEILING_CLAMP_MARGIN,
     )
   })
 
   test('a covering deck lowers the bound to its underside minus the margin', () => {
     const nodes = stackedNodes([slabNode('slab_deck', { elevation: 0, thickness: 0.3 })])
-    expect(getCeilingClampBound('level_0', nodes, ceilingPolygon)).toBeCloseTo(
+    expect(getCeilingClampBound(covering('level_0', nodes), ceilingPolygon)).toBeCloseTo(
       2.2 - CEILING_CLAMP_MARGIN,
     )
   })
@@ -486,14 +492,14 @@ describe('getCeilingClampBound', () => {
         thickness: 0.3,
       }),
     ])
-    expect(getCeilingClampBound('level_0', nodes, ceilingPolygon)).toBeCloseTo(
+    expect(getCeilingClampBound(covering('level_0', nodes), ceilingPolygon)).toBeCloseTo(
       2.2 - CEILING_CLAMP_MARGIN,
     )
   })
 
   test('returns Infinity for an unresolvable level', () => {
     const nodes = stackedNodes([])
-    expect(getCeilingClampBound('level_missing', nodes, ceilingPolygon)).toBe(
+    expect(getCeilingClampBound(covering('level_missing', nodes), ceilingPolygon)).toBe(
       Number.POSITIVE_INFINITY,
     )
   })
@@ -517,10 +523,10 @@ describe('getCeilingClampBound', () => {
       [4, 5],
       [0, 5],
     ]
-    expect(getCeilingClampBound('level_0', nodes, minSideStrip)).toBeCloseTo(
+    expect(getCeilingClampBound(covering('level_0', nodes), minSideStrip)).toBeCloseTo(
       2.2 - CEILING_CLAMP_MARGIN,
     )
-    expect(getCeilingClampBound('level_0', nodes, maxSideStrip)).toBeCloseTo(
+    expect(getCeilingClampBound(covering('level_0', nodes), maxSideStrip)).toBeCloseTo(
       2.2 - CEILING_CLAMP_MARGIN,
     )
   })

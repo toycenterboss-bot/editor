@@ -16,6 +16,7 @@ import {
   getCeilingClampBound,
   getLevelElevations,
   getStoredLevelHeight,
+  resolveLevelCoveringContext,
 } from '../services/storey'
 import {
   getSceneHistoryPauseDepth,
@@ -1401,6 +1402,7 @@ function runSpaceDetection(
       levelNode?.type === 'level'
         ? getStoredLevelHeight(levelNode as LevelNode)
         : DEFAULT_LEVEL_HEIGHT
+    const coveringContext = resolveLevelCoveringContext(levelId, nodes as Record<AnyNodeId, any>)
     syncAutoCeilingsForLevel(
       levelId,
       roomPolygons,
@@ -1408,7 +1410,7 @@ function runSpaceDetection(
       sceneStore,
       {
         storeyHeight,
-        ceilingClampBound: (polygon) => getCeilingClampBound(levelId, nodes, polygon),
+        ceilingClampBound: (polygon) => getCeilingClampBound(coveringContext, polygon),
       },
     )
     const zonePlan = planAutoZonesForLevel(

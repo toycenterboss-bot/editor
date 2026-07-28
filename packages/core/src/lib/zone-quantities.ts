@@ -1,7 +1,7 @@
 import type { AnyNode, CeilingNode, SlabNode, WallNode, ZoneNode } from '../schema'
 import type { AnyNodeId } from '../schema/types'
-import { DEFAULT_LEVEL_HEIGHT, resolveCeilingHeight } from '../services/level-height'
-import { getWallPlaneTop } from '../services/storey'
+import { resolveCeilingHeight } from '../services/level-height'
+import { getWallPlaneTop, resolveLevelCoveringContext } from '../services/storey'
 import { computeWallSlabSupport } from '../systems/slab/slab-support'
 import { sampleWallCenterline } from '../systems/wall/wall-curve'
 import { DEFAULT_WALL_THICKNESS } from '../systems/wall/wall-footprint'
@@ -479,10 +479,16 @@ export function deriveZoneQuantityReport(
     : []
   const walls = levelNodes.filter((node): node is WallNode => node.type === 'wall')
   const slabs = levelNodes.filter((node): node is SlabNode => node.type === 'slab')
+  const coveringContext = levelId
+    ? resolveLevelCoveringContext(levelId, sceneNodes as Record<AnyNodeId, AnyNode>)
+    : null
   const wallEffectiveHeight = (wall: WallNode) => {
     const support = computeWallSlabSupport(wall, slabs, walls, wall.supportSlabId)
-    const planeTop = levelId ? getWallPlaneTop(wall, levelId, sceneNodes) : DEFAULT_LEVEL_HEIGHT
-    return resolveWallEffectiveHeight(wall, planeTop, support.elevation)
+    return resolveWallEffectiveHeight(
+      wall,
+      getWallPlaneTop(wall, coveringContext),
+      support.elevation,
+    )
   }
   const edgeLengths = zone.polygon.map((start, index) => {
     const end = zone.polygon[(index + 1) % zone.polygon.length]

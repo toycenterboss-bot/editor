@@ -2,6 +2,7 @@ import {
   type AnyNode,
   type AnyNodeId,
   getWallPlaneTop,
+  resolveLevelCoveringContext,
   resolveWallEffectiveHeight,
   spatialGridManager,
   type WallNode,
@@ -44,7 +45,10 @@ export function resolveWallOpeningCeiling(
   )
   // Covering-clamped plane: openings cap under a flush/thick slab from the
   // level above, matching the shortened wall body.
-  const planeTop = getWallPlaneTop(wall, levelId, nodes as Record<AnyNodeId, AnyNode>)
+  const planeTop = getWallPlaneTop(
+    wall,
+    resolveLevelCoveringContext(levelId, nodes as Record<AnyNodeId, AnyNode>),
+  )
   return resolveWallEffectiveHeight(wall, planeTop, support.elevation)
 }
 

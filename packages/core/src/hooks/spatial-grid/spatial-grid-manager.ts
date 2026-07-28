@@ -2,7 +2,7 @@ import { getRenderableSlabPolygon } from '../../lib/slab-polygon'
 import { nodeRegistry } from '../../registry'
 import type { AnyNode, AnyNodeId, CeilingNode, ItemNode, SlabNode, WallNode } from '../../schema'
 import { getScaledDimensions, isLowProfileItemSurface } from '../../schema'
-import { getWallPlaneTop } from '../../services/storey'
+import { getWallPlaneTop, resolveLevelCoveringContext } from '../../services/storey'
 import useLiveNodeOverrides, { getEffectiveNode } from '../../store/use-live-node-overrides'
 import useLiveTransforms from '../../store/use-live-transforms'
 import useScene from '../../store/use-scene'
@@ -375,7 +375,7 @@ export class SpatialGridManager {
     )
     return resolveWallEffectiveHeight(
       wall,
-      getWallPlaneTop(wall, levelId, nodes),
+      getWallPlaneTop(wall, resolveLevelCoveringContext(levelId, nodes)),
       support.elevation,
     )
   }
@@ -1272,5 +1272,12 @@ export function getWallEffectiveHeightForNodes(
     wall.thickness,
     wall.supportSlabId ?? null,
   )
-  return resolveWallEffectiveHeight(wall, getWallPlaneTop(wall, levelId, nodes), support.elevation)
+  return resolveWallEffectiveHeight(
+    wall,
+    getWallPlaneTop(
+      wall,
+      resolveLevelCoveringContext(levelId, nodes as Record<AnyNodeId, AnyNode>),
+    ),
+    support.elevation,
+  )
 }

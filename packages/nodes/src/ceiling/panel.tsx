@@ -5,6 +5,7 @@ import {
   type CeilingNode,
   getCeilingClampBound,
   resolveCeilingHeight,
+  resolveLevelCoveringContext,
   useScene,
 } from '@pascal-app/core'
 import {
@@ -53,7 +54,7 @@ export function CeilingPanel() {
   const maxHeight = useScene((s) => {
     const parent = node?.parentId ? s.nodes[node.parentId as AnyNode['id']] : undefined
     return parent?.type === 'level'
-      ? getCeilingClampBound(parent.id, s.nodes, node?.polygon ?? [])
+      ? getCeilingClampBound(resolveLevelCoveringContext(parent.id, s.nodes), node?.polygon ?? [])
       : 6
   })
 

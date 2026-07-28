@@ -55,16 +55,11 @@ function resolveLevelBuildingId(
  * Levels with no resolvable building share one legacy stack from 0.
  *
  * Pure — operates on the serialized nodes record only.
+ *
+ * Scans every node, so per-item callers resolve it once and reuse the Map
+ * rather than asking inside a loop.
  */
-// Identity-keyed memo. `nodes` is an immutable store slice, so a hit means the
-// scene has not changed since the last call. Hot callers ask once per wall per
-// frame (WallCutout), which rebuilt an identical Map 1000+ times a frame.
-let memoNodes: Record<AnyNodeId, AnyNode> | null = null
-let memoElevations: Map<string, LevelElevation> | null = null
-
 export function getLevelElevations(nodes: Record<AnyNodeId, AnyNode>): Map<string, LevelElevation> {
-  if (memoNodes === nodes && memoElevations) return memoElevations
-
   const buildings = Object.values(nodes).filter(
     (node): node is BuildingNode => node?.type === 'building',
   )
@@ -95,8 +90,6 @@ export function getLevelElevations(nodes: Record<AnyNodeId, AnyNode>): Map<strin
     cumulativeYByBuilding.set(entry.buildingId, baseY + entry.height)
   }
 
-  memoNodes = nodes
-  memoElevations = elevations
   return elevations
 }
 
@@ -179,7 +172,12 @@ export function getLevelBelow(
   return below?.type === 'level' ? (below as LevelNode) : null
 }
 
-type CoveringSlabContext = {
+/**
+ * Everything the covering queries below need about a level, resolved once.
+ * Depends on the level and the scene, never on the queried wall / ceiling /
+ * point — see {@link resolveLevelCoveringContext}.
+ */
+export type LevelCoveringContext = {
   /** Stored storey height of the QUERIED level. */
   storeyHeight: number
   /** Non-recessed slab children of the level above. */
@@ -191,11 +189,15 @@ type CoveringSlabContext = {
  * (non-recessed) slabs. `null` when `levelId` doesn't resolve to a level.
  * A missing level above yields an empty slab list, not `null` — the
  * storey height is still meaningful for the clamp bound.
+ *
+ * Costs a full node scan (it looks up the level above), so callers that ask
+ * about many walls or ceilings resolve this ONCE per level and pass the
+ * result down, rather than paying the scan per item.
  */
-function resolveCoveringSlabContext(
+export function resolveLevelCoveringContext(
   levelId: string,
   nodes: Record<AnyNodeId, AnyNode>,
-): CoveringSlabContext | null {
+): LevelCoveringContext | null {
   const level = nodes[levelId as LevelNode['id']]
   if (level?.type !== 'level') return null
 
@@ -251,7 +253,7 @@ function slabCoversPoint(slab: SlabNode, x: number, z: number): boolean {
  * level's local Y, or `null` when none covers the point.
  */
 function lowestCoveringUndersideAt(
-  context: CoveringSlabContext,
+  context: LevelCoveringContext,
   x: number,
   z: number,
 ): number | null {
@@ -275,18 +277,16 @@ function lowestCoveringUndersideAt(
  * level-local `[x, z]` is valid in every level of the stack unchanged.
  */
 export function getCoveringSlabUndersideAt(
-  levelId: string,
-  nodes: Record<AnyNodeId, AnyNode>,
+  context: LevelCoveringContext | null,
   x: number,
   z: number,
 ): number | null {
-  const context = resolveCoveringSlabContext(levelId, nodes)
   if (!context) return null
   return lowestCoveringUndersideAt(context, x, z)
 }
 
 /**
- * Top plane for a plane-bound wall on `levelId`, in level-local Y:
+ * Top plane for a plane-bound wall on `context`'s level, in level-local Y:
  * `min(stored storey height, lowest covering-slab underside over the wall's
  * span)` — a thick or flush slab on the level above SHORTENS the walls below
  * instead of colliding with them (Revit-style automatic attach).
@@ -304,14 +304,12 @@ export function getCoveringSlabUndersideAt(
  * walls ignore the value (`resolveWallTop` returns their stored height), so
  * passing it wherever a raw storey height feeds `resolveWallTop` /
  * `resolveWallEffectiveHeight` is always safe. Falls back to
- * {@link DEFAULT_LEVEL_HEIGHT} when `levelId` doesn't resolve to a level.
+ * {@link DEFAULT_LEVEL_HEIGHT} for a `null` context (level unresolvable).
  */
 export function getWallPlaneTop(
   wall: Pick<WallNode, 'start' | 'end'> & Partial<Pick<WallNode, 'thickness' | 'curveOffset'>>,
-  levelId: string,
-  nodes: Record<AnyNodeId, AnyNode>,
+  context: LevelCoveringContext | null,
 ): number {
-  const context = resolveCoveringSlabContext(levelId, nodes)
   if (!context) return DEFAULT_LEVEL_HEIGHT
 
   let plane = context.storeyHeight
@@ -325,7 +323,7 @@ export function getWallPlaneTop(
 }
 
 /**
- * Upper bound for a ceiling's stored height over `polygon` on `levelId`:
+ * Upper bound for a ceiling's stored height over `polygon` on `context`'s level:
  * `min(storey plane, lowest covering-slab underside) - CEILING_CLAMP_MARGIN`.
  * The covering underside is sampled at every polygon vertex plus the
  * centroid — cheap, and a slab overlapping a convex-ish ceiling almost
@@ -335,15 +333,13 @@ export function getWallPlaneTop(
  * sitting exactly on a slab's boundary count as covered on every side
  * (see `slabCoversPoint`) instead of flipping with the edge orientation.
  *
- * Returns `Infinity` when `levelId` doesn't resolve, so callers clamp
- * against nothing rather than a garbage plane.
+ * Returns `Infinity` for a `null` context (level unresolvable), so callers
+ * clamp against nothing rather than a garbage plane.
  */
 export function getCeilingClampBound(
-  levelId: string,
-  nodes: Record<AnyNodeId, AnyNode>,
+  context: LevelCoveringContext | null,
   polygon: ReadonlyArray<[number, number]>,
 ): number {
-  const context = resolveCoveringSlabContext(levelId, nodes)
   if (!context) return Number.POSITIVE_INFINITY
 
   let bound = context.storeyHeight

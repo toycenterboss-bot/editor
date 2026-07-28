@@ -3,6 +3,8 @@ import {
   emitter,
   getWallFaceBandConfig,
   getWallPlaneTop,
+  type LevelCoveringContext,
+  resolveLevelCoveringContext,
   resolveLevelId,
   resolveWallEffectiveHeight,
   sceneRegistry,
@@ -149,6 +151,9 @@ export const WallCutout = () => {
       camera.getWorldDirection(u)
 
       const walls = sceneRegistry.byType.wall!
+      // The covering context depends on the level, not the wall, and costs a
+      // full node scan — resolve it once per level for the whole sweep.
+      const coveringContexts = new Map<string, LevelCoveringContext | null>()
       walls.forEach((wallId) => {
         const wallMesh = sceneRegistry.nodes.get(wallId)
         if (!wallMesh) return
@@ -167,9 +172,12 @@ export const WallCutout = () => {
           wallNode.thickness,
           wallNode.supportSlabId,
         )
+        if (!coveringContexts.has(levelId)) {
+          coveringContexts.set(levelId, resolveLevelCoveringContext(levelId, sceneState.nodes))
+        }
         const effectiveWallHeight = resolveWallEffectiveHeight(
           wallNode,
-          getWallPlaneTop(wallNode, levelId, sceneState.nodes),
+          getWallPlaneTop(wallNode, coveringContexts.get(levelId) ?? null),
           support.elevation,
         )
         const shouldSelectionHighlight =

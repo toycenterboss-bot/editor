@@ -3,6 +3,7 @@ import {
   DEFAULT_LEVEL_HEIGHT,
   getStoredLevelHeight,
   getWallPlaneTop,
+  resolveLevelCoveringContext,
   resolveStairTotalRise,
   resolveWallEffectiveHeight,
 } from '@pascal-app/core'
@@ -127,7 +128,10 @@ export function resolveReportedWallHeight(
   // Covering-clamped plane for plane-bound walls; explicit heights pass
   // through resolveWallEffectiveHeight untouched.
   const planeTop = levelId
-    ? getWallPlaneTop(wall, levelId, bridge.getNodes())
+    ? getWallPlaneTop(
+        wall,
+        resolveLevelCoveringContext(levelId, bridge.getNodes() as Record<AnyNodeId, AnyNode>),
+      )
     : DEFAULT_LEVEL_HEIGHT
   const levelNodes = levelId ? nodesOnLevel(bridge, levelId) : []
   const slabs = levelNodes.filter(

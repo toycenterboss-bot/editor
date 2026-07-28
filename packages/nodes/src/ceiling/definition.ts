@@ -5,6 +5,7 @@ import {
   type HandleDescriptor,
   type NodeDefinition,
   resolveCeilingHeight,
+  resolveLevelCoveringContext,
   type SceneApi,
   useScene,
 } from '@pascal-app/core'
@@ -33,7 +34,10 @@ const MIN_CEILING_HEIGHT = 0.5
 function ceilingHeightBound(n: CeilingNodeType, sceneApi: SceneApi): number {
   const parent = n.parentId ? sceneApi.get(n.parentId as AnyNodeId) : undefined
   return parent?.type === 'level'
-    ? getCeilingClampBound(parent.id, sceneApi.nodes(), n.polygon ?? [])
+    ? getCeilingClampBound(
+        resolveLevelCoveringContext(parent.id, sceneApi.nodes()),
+        n.polygon ?? [],
+      )
     : Number.POSITIVE_INFINITY
 }
 

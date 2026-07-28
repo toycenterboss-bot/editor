@@ -33,7 +33,7 @@ import {
 } from '../schema/scene-material'
 import { type AnyNode, type AnyNodeId, AnyNode as AnyNodeSchema } from '../schema/types'
 import { deriveLegacyLevelHeight } from '../services/level-height'
-import { getCeilingClampBound } from '../services/storey'
+import { getCeilingClampBound, resolveLevelCoveringContext } from '../services/storey'
 import { computeWallSlabSupport } from '../systems/slab/slab-support'
 import { DEFAULT_WALL_HEIGHT } from '../systems/wall/wall-footprint'
 import { healSceneNodes } from '../utils/heal-scene-graph'
@@ -1071,6 +1071,7 @@ function migrateNodes(nodes: Record<string, any>): {
   // post-migration user typing a custom height exactly equal to the bound
   // keeps it (the gate prevents re-classification on later loads).
   if (isLegacyScene) {
+    const coveringContexts = new Map<string, ReturnType<typeof resolveLevelCoveringContext>>()
     for (const [id, node] of Object.entries(patchedNodes)) {
       if (node?.type !== 'ceiling' || !('height' in node)) continue
       const dropHeight = () => {
@@ -1082,9 +1083,14 @@ function migrateNodes(nodes: Record<string, any>): {
         continue
       }
       if (typeof node.parentId !== 'string') continue
+      if (!coveringContexts.has(node.parentId)) {
+        coveringContexts.set(
+          node.parentId,
+          resolveLevelCoveringContext(node.parentId, patchedNodes as Record<AnyNodeId, AnyNode>),
+        )
+      }
       const bound = getCeilingClampBound(
-        node.parentId,
-        patchedNodes as Record<AnyNodeId, AnyNode>,
+        coveringContexts.get(node.parentId) ?? null,
         Array.isArray(node.polygon) ? node.polygon : [],
       )
       const stored = getFiniteNumber(node.height, Number.NaN)
