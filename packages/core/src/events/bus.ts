@@ -221,6 +221,7 @@ type CameraControlEvents = {
   'camera-controls:orbit-cw': undefined
   'camera-controls:orbit-ccw': undefined
   'camera-controls:fit-scene': CameraControlFitSceneEvent
+  'camera-controls:fit-selection': undefined
   'camera-controls:generate-thumbnail': ThumbnailGenerateEvent
   'camera-controls:apply-pose': CameraPose
   'camera-controls:cancel-pose': undefined

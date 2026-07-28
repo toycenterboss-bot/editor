@@ -1,6 +1,8 @@
 'use client'
 
 import { emitter } from '@pascal-app/core'
+import { useViewer } from '@pascal-app/viewer'
+import { ScanSearch } from 'lucide-react'
 import Image from 'next/image'
 import useEditor from '../../../store/use-editor'
 import { ActionButton } from './action-button'
@@ -9,6 +11,7 @@ export function CameraActions({ hideOrbit = false }: { hideOrbit?: boolean }) {
   // Orbit stays useful in 2D-only (it spins the synced floorplan view), but
   // top view only tilts the hidden 3D camera — pointless without the canvas.
   const is2dOnly = useEditor((s) => s.viewMode === '2d')
+  const hasSelection = useViewer((s) => s.selection.selectedIds.length > 0)
 
   const goToTopView = () => {
     emitter.emit('camera-controls:top-view')
@@ -20,6 +23,10 @@ export function CameraActions({ hideOrbit = false }: { hideOrbit?: boolean }) {
 
   const orbitCCW = () => {
     emitter.emit('camera-controls:orbit-ccw')
+  }
+
+  const frameSelection = () => {
+    emitter.emit('camera-controls:fit-selection')
   }
 
   return (
@@ -80,6 +87,19 @@ export function CameraActions({ hideOrbit = false }: { hideOrbit?: boolean }) {
           />
         </ActionButton>
       )}
+
+      {/* Frame Selection */}
+      <ActionButton
+        className="group text-muted-foreground hover:bg-white/5"
+        disabled={!hasSelection}
+        label="Frame Selection"
+        onClick={frameSelection}
+        shortcut="⇧F"
+        size="icon"
+        variant="ghost"
+      >
+        <ScanSearch className="h-5 w-5 opacity-70 transition-opacity group-hover:opacity-100" />
+      </ActionButton>
     </div>
   )
 }

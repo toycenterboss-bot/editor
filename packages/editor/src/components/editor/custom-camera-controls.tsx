@@ -18,6 +18,7 @@ import {
   type Camera,
   type OrthographicCamera,
   type PerspectiveCamera,
+  Sphere,
   Spherical,
   Vector3,
 } from 'three'
@@ -41,6 +42,8 @@ import {
 import { createCameraDraggingLifecycle } from './camera-dragging-lifecycle'
 
 const currentTarget = new Vector3()
+const selectionBox = new Box3()
+const selectionSphere = new Sphere()
 const tempBox = new Box3()
 const tempCenter = new Vector3()
 const tempDelta = new Vector3()
@@ -1273,6 +1276,41 @@ export const CustomCameraControls = () => {
       controls.current.setLookAt(cx + distance * 0.7, height, cz + distance * 0.7, cx, 0, cz, true)
     }
 
+    const handleFitSelection = () => {
+      if (isFirstPersonMode || !controls.current || isPreviewMode) return
+      const selectedIds = useViewer.getState().selection.selectedIds as AnyNodeId[]
+      if (selectedIds.length === 0) return
+
+      selectionBox.makeEmpty()
+      for (const id of selectedIds) {
+        const object3D = sceneRegistry.nodes.get(id)
+        if (!object3D) continue
+        tempBox.setFromObject(object3D)
+        if (tempBox.isEmpty()) continue
+        selectionBox.union(tempBox)
+      }
+      if (selectionBox.isEmpty()) return
+
+      // Same reasoning as the scene fit: the orbit ceiling is sized for hand
+      // navigation and would clamp the framing of a wide selection, so raise
+      // it imperatively before the fit runs.
+      selectionBox.getSize(tempSize)
+      const requiredMaxDistance = Math.max(DEFAULT_MAX_DISTANCE, Math.ceil(tempSize.length() * 1.5))
+      controls.current.maxDistance = requiredMaxDistance
+      setMaxDistance(requiredMaxDistance)
+
+      // `fitToSphere` moves the target and the distance only, so the current
+      // azimuth and polar angle survive — the selection fills the frame from
+      // wherever the user is already looking. `fitToBox` would snap the camera
+      // to face the nearest side of the box instead, which reads as the view
+      // jumping somewhere else entirely.
+      selectionBox.getBoundingSphere(selectionSphere)
+      // A hair of margin so the selection does not touch the frame edge, and a
+      // floor so a single thin wall does not pull the camera inside itself.
+      selectionSphere.radius = Math.max(selectionSphere.radius * 1.2, 1)
+      void controls.current.fitToSphere(selectionSphere, true)
+    }
+
     emitter.on('camera-controls:capture', handleNodeCapture)
     emitter.on('camera-controls:focus', handleNodeFocus)
     emitter.on('camera-controls:view', handleNodeView)
@@ -1280,6 +1318,7 @@ export const CustomCameraControls = () => {
     emitter.on('camera-controls:orbit-cw', handleOrbitCW)
     emitter.on('camera-controls:orbit-ccw', handleOrbitCCW)
     emitter.on('camera-controls:fit-scene', handleFitScene)
+    emitter.on('camera-controls:fit-selection', handleFitSelection)
 
     return () => {
       emitter.off('camera-controls:capture', handleNodeCapture)
@@ -1289,6 +1328,7 @@ export const CustomCameraControls = () => {
       emitter.off('camera-controls:orbit-cw', handleOrbitCW)
       emitter.off('camera-controls:orbit-ccw', handleOrbitCCW)
       emitter.off('camera-controls:fit-scene', handleFitScene)
+      emitter.off('camera-controls:fit-selection', handleFitSelection)
     }
   }, [focusNode, isPreviewMode, isFirstPersonMode])
 

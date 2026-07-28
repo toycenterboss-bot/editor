@@ -313,7 +313,7 @@ export const useKeyboard = ({
         e.preventDefault()
         useEditor.getState().setPhase('furnish')
         useEditor.getState().setMode('select')
-      } else if (e.key === 'f' && !e.metaKey && !e.ctrlKey) {
+      } else if (e.key === 'f' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         if (isVersionPreviewMode) return
         e.preventDefault()
         useEditor.getState().setPhase('furnish')
@@ -340,7 +340,21 @@ export const useKeyboard = ({
         editor.setMode('build')
         editor.setTool('measurement')
       }
-      if (e.key === 'v' && !e.metaKey && !e.ctrlKey) {
+      if (e.code === 'KeyF' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault()
+        emitter.emit('camera-controls:fit-selection')
+        return
+      }
+
+      if (e.code === 'KeyV' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (isVersionPreviewMode) return
+        e.preventDefault()
+        useEditor.getState().setMode('select')
+        useEditor.getState().setFloorplanSelectionTool('marquee')
+        return
+      }
+
+      if (e.key === 'v' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
         e.preventDefault()
         useEditor.getState().setMode('select')
         useEditor.getState().setFloorplanSelectionTool('click')

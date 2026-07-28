@@ -1,7 +1,7 @@
 'use client'
 
 import { Icon } from '@iconify/react'
-import { type LucideIcon, Trash2 } from 'lucide-react'
+import { BoxSelect, type LucideIcon, Trash2 } from 'lucide-react'
 import Image from 'next/image'
 import { Fragment } from 'react'
 import { cn } from './../../../lib/utils'
@@ -29,6 +29,14 @@ const controls: ControlConfig[] = [
     imageSrc: '/icons/select.webp',
     label: 'Select',
     shortcut: 'V',
+    color: 'hover:bg-blue-500/20 hover:text-blue-400',
+    activeColor: 'bg-blue-500/20 text-blue-400',
+  },
+  {
+    id: 'box-select',
+    icon: BoxSelect,
+    label: 'Box Select',
+    shortcut: '⇧V',
     color: 'hover:bg-blue-500/20 hover:text-blue-400',
     activeColor: 'bg-blue-500/20 text-blue-400',
   },
