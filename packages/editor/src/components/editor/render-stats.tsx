@@ -175,37 +175,37 @@ export function RenderStatsOverlay() {
         {isCollapsed ? null : (
           <div className="mt-1.5 space-y-0.5 border-white/10 border-t pt-1.5">
             <StatRow
-              hint="Сколько раз за кадр GPU просят что-то нарисовать"
+              hint="How many times per frame the GPU is asked to draw something"
               label="draw calls"
               value={numberFormatter.format(view.drawCalls)}
             />
             <StatRow
-              hint="Треугольников отправлено на отрисовку в последнем кадре"
-              label="треугольники"
+              hint="Triangles submitted for drawing in the last frame"
+              label="triangles"
               value={numberFormatter.format(view.triangles)}
             />
-            <StatRow label="на вызов" value={numberFormatter.format(trianglesPerCall)} />
+            <StatRow label="per call" value={numberFormatter.format(trianglesPerCall)} />
             <StatRow
-              hint="Мешей в графе сцены / из них не скрыто флагом visible"
-              label="меши"
+              hint="Meshes in the scene graph / of those, not hidden by the visible flag"
+              label="meshes"
               value={`${numberFormatter.format(view.visibleMeshes)} / ${numberFormatter.format(view.meshes)}`}
             />
             <StatRow
-              hint="Меши, снятые с рендера флагом visible (этажи, фильтры)"
-              label="скрыто"
+              hint="Meshes taken out of the render by the visible flag (levels, filters)"
+              label="hidden"
               value={numberFormatter.format(hiddenMeshes)}
             />
             <StatRow
-              hint="Геометрий в памяти GPU"
-              label="геометрии"
+              hint="Geometries in GPU memory"
+              label="geometries"
               value={numberFormatter.format(view.geometries)}
             />
             <StatRow
-              hint="Текстур в памяти GPU"
-              label="текстуры"
+              hint="Textures in GPU memory"
+              label="textures"
               value={numberFormatter.format(view.textures)}
             />
-            <div className="pt-1 text-[10px] text-white/40 leading-4">Alt+P — скрыть</div>
+            <div className="pt-1 text-[10px] text-white/40 leading-4">Alt+P — hide</div>
           </div>
         )}
       </div>
